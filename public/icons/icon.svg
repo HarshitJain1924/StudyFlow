@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6366f1;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="100" fill="url(#grad)"/>
+  <g fill="white">
+    <!-- Book/checklist icon -->
+    <rect x="130" y="100" width="252" height="312" rx="20" fill="white" opacity="0.95"/>
+    <!-- Lines -->
+    <rect x="180" y="160" width="150" height="16" rx="4" fill="#8b5cf6"/>
+    <rect x="180" y="200" width="120" height="16" rx="4" fill="#c4b5fd"/>
+    <rect x="180" y="240" width="140" height="16" rx="4" fill="#c4b5fd"/>
+    <rect x="180" y="280" width="100" height="16" rx="4" fill="#c4b5fd"/>
+    <rect x="180" y="320" width="130" height="16" rx="4" fill="#c4b5fd"/>
+    <!-- Checkmarks -->
+    <circle cx="155" cy="168" r="12" fill="#22c55e"/>
+    <path d="M149 168l4 4l8-8" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="155" cy="208" r="12" fill="#22c55e"/>
+    <path d="M149 208l4 4l8-8" stroke="white" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="155" cy="248" r="12" stroke="#c4b5fd" stroke-width="2" fill="none"/>
+    <circle cx="155" cy="288" r="12" stroke="#c4b5fd" stroke-width="2" fill="none"/>
+    <circle cx="155" cy="328" r="12" stroke="#c4b5fd" stroke-width="2" fill="none"/>
+    <!-- Timer badge -->
+    <circle cx="380" cy="380" r="70" fill="#f97316"/>
+    <circle cx="380" cy="380" r="55" fill="white"/>
+    <path d="M380 345v35l20 15" stroke="#f97316" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>
