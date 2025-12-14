@@ -32,7 +32,11 @@ import { toast } from "sonner";
 
 type TimerMode = "work" | "shortBreak" | "longBreak";
 
-export function PomodoroTimer() {
+interface PomodoroTimerProps {
+  minimalUI?: boolean;
+}
+
+export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
   const { settings, updateSettings, addStudyTime, addSession } = useStudy();
   const [mode, setMode] = useState<TimerMode>("work");
   const [timeLeft, setTimeLeft] = useState(settings.pomodoro.workDuration * 60);
@@ -193,7 +197,7 @@ export function PomodoroTimer() {
 
   return (
     <Card className="overflow-hidden">
-      <div className={cn("h-1", getModeColor())} />
+      {!minimalUI && <div className={cn("h-1", getModeColor())} />}
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">

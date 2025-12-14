@@ -28,9 +28,10 @@ interface TodoListProps {
   onEdit?: () => void;
   onUpdate: (checklist: ParsedChecklist) => void;
   compactMode?: boolean;
+  minimalUI?: boolean;
 }
 
-export function TodoList({ checklist, onEdit, onUpdate, compactMode = false }: TodoListProps) {
+export function TodoList({ checklist, onEdit, onUpdate, compactMode = false, minimalUI = false }: TodoListProps) {
   const [sections, setSections] = useState<TodoSectionType[]>(checklist.sections);
   const [filteredSections, setFilteredSections] = useState<TodoSectionType[]>(checklist.sections);
   const [totalCompleted, setTotalCompleted] = useState(checklist.totalCompleted);
@@ -61,7 +62,7 @@ export function TodoList({ checklist, onEdit, onUpdate, compactMode = false }: T
     // Track completion in stats
     if (completed) {
       addCompletedTask();
-      fireTaskConfetti();
+      if (!minimalUI) fireTaskConfetti();
     } else {
       removeCompletedTask();
     }
@@ -69,12 +70,12 @@ export function TodoList({ checklist, onEdit, onUpdate, compactMode = false }: T
     // Check for section completion
     const section = updatedSections.find(s => s.id === sectionId);
     if (section && section.completedCount === section.totalCount && completed) {
-      fireSectionConfetti();
+      if (!minimalUI) fireSectionConfetti();
     }
 
     // Check for all complete
     if (totals.totalCompleted === totals.totalItems && completed) {
-      fireAllCompleteConfetti();
+      if (!minimalUI) fireAllCompleteConfetti();
     }
     
     onUpdate({
@@ -104,14 +105,14 @@ export function TodoList({ checklist, onEdit, onUpdate, compactMode = false }: T
     // Update stats
     if (taskDelta > 0) {
       for (let i = 0; i < taskDelta; i++) addCompletedTask();
-      fireSectionConfetti();
+      if (!minimalUI) fireSectionConfetti();
     } else if (taskDelta < 0) {
       for (let i = 0; i < Math.abs(taskDelta); i++) removeCompletedTask();
     }
 
     // Check for all complete
     if (totals.totalCompleted === totals.totalItems && completed) {
-      fireAllCompleteConfetti();
+      if (!minimalUI) fireAllCompleteConfetti();
     }
     
     onUpdate({

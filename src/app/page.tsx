@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useUser, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { MarkdownInput } from "@/components/markdown-input";
 import { TodoList } from "@/components/todo-list";
 import { PomodoroTimer } from "@/components/pomodoro-timer";
@@ -14,10 +15,15 @@ import { GoalsPage } from "@/components/goals-page";
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
 import { ChecklistSidebar } from "@/components/checklist-sidebar";
 import { QuickTaskAdder } from "@/components/quick-task-adder";
+import { UserProfile } from "@/components/user-profile";
+import { Leaderboard } from "@/components/leaderboard";
+import { YouTubeToChecklist } from "@/components/youtube-to-checklist";
+import { MiniMusicPlayer } from "@/components/mini-music-player";
 import { ParsedChecklist, parseMarkdownChecklist } from "@/lib/markdown-parser";
 import { StudyProvider } from "@/lib/study-context";
 import { ViewProvider, useViewSettings } from "@/lib/view-context";
 import { ChecklistProvider, useChecklists } from "@/lib/checklist-store";
+import { MusicProvider, useMusic } from "@/lib/music-context";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useServiceWorker, usePWAInstall } from "@/hooks/use-pwa";
 import { Button } from "@/components/ui/button";
@@ -27,6 +33,13 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   CheckSquare,
   Moon,
@@ -49,7 +62,19 @@ import {
   Settings,
   Clock,
   Target,
+  Trophy,
+  User,
+  LogIn,
+  Wand2,
+  MoreHorizontal,
+  Pencil,
+  Copy,
+  Trash2,
+  Music2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
+import { toast } from "sonner";
 
 function HomeContent() {
   const [showMarkdownInput, setShowMarkdownInput] = useState(false);
@@ -60,17 +85,26 @@ function HomeContent() {
   const [isOnline, setIsOnline] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showGoalsPage, setShowGoalsPage] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showYouTubeAI, setShowYouTubeAI] = useState(false);
+  const [minimalUI, setMinimalUI] = useState(false);
   
+  const { user } = useUser();
   const { settings: viewSettings, toggleCompactMode } = useViewSettings();
+  const { isPlaying: isMusicPlaying } = useMusic();
   const { isUpdateAvailable, updateApp } = useServiceWorker();
   const { canInstall, install } = usePWAInstall();
   const {
     checklists,
     activeChecklist,
     activeChecklistId,
+    setActiveChecklist,
     createFromMarkdown,
     updateChecklist,
     createChecklist,
+    deleteChecklist,
+    duplicateChecklist,
   } = useChecklists();
 
   // Load preferences on mount
@@ -184,7 +218,7 @@ function HomeContent() {
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-background via-background to-muted/20">
+    <div className="min-h-screen flex flex-col bg-linear-to-br from-background via-background to-muted/20">
       {/* Checklist Sidebar */}
       <ChecklistSidebar
         isOpen={sidebarOpen}
@@ -225,15 +259,24 @@ function HomeContent() {
                 <PanelLeft className="h-5 w-5" />
               </Button>
 
-              <div className="p-2 rounded-lg bg-primary text-primary-foreground">
-                <BookOpen className="h-5 w-5" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold">StudyFlow</h1>
-                <p className="text-xs text-muted-foreground hidden sm:block">
-                  Your personal study companion
-                </p>
-              </div>
+              <button
+                onClick={() => {
+                  setShowGoalsPage(false);
+                  setShowMarkdownInput(false);
+                  setActiveChecklist(null);
+                }}
+                className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+              >
+                <div className="p-2 rounded-lg bg-primary text-primary-foreground">
+                  <BookOpen className="h-5 w-5" />
+                </div>
+                <div className="text-left">
+                  <h1 className="text-lg font-bold">StudyFlow</h1>
+                  <p className="text-xs text-muted-foreground hidden sm:block">
+                    Your personal study companion
+                  </p>
+                </div>
+              </button>
             </div>
 
             <div className="flex items-center gap-2">
@@ -256,6 +299,17 @@ function HomeContent() {
                   {viewSettings.compactMode ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
                 </Label>
               </div>
+
+              {/* Minimal UI Toggle */}
+              <Button
+                variant={minimalUI ? "default" : "ghost"}
+                size="icon"
+                onClick={() => setMinimalUI(!minimalUI)}
+                className="rounded-full hidden sm:flex"
+                title={minimalUI ? "Show full UI" : "Minimal UI"}
+              >
+                {minimalUI ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </Button>
                 
               {/* Install PWA Button */}
               {canInstall && (
@@ -274,6 +328,17 @@ function HomeContent() {
                 title="Keyboard shortcuts (?)"
               >
                 <Keyboard className="h-5 w-5" />
+              </Button>
+
+              {/* AI YouTube Button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowYouTubeAI(true)}
+                className="rounded-full hidden sm:flex"
+                title="Generate checklist from YouTube"
+              >
+                <Wand2 className="h-5 w-5 text-purple-500" />
               </Button>
                 
               {/* Mobile Menu */}
@@ -317,19 +382,56 @@ function HomeContent() {
                   <Moon className="h-5 w-5" />
                 )}
               </Button>
-              <Button variant="ghost" size="icon" className="rounded-full" asChild>
-                <a
-                  href="https://github.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Github className="h-5 w-5" />
-                </a>
+
+              {/* Leaderboard Button */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowLeaderboard(true)}
+                className="rounded-full"
+              >
+                <Trophy className="h-5 w-5" />
               </Button>
+
+              {/* User Auth */}
+              <SignedIn>
+                <UserButton 
+                  appearance={{
+                    elements: {
+                      avatarBox: "h-9 w-9"
+                    }
+                  }}
+                />
+              </SignedIn>
+              <SignedOut>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full"
+                  asChild
+                >
+                  <a href="/sign-in">
+                    <LogIn className="h-5 w-5" />
+                  </a>
+                </Button>
+              </SignedOut>
             </div>
           </div>
         </div>
       </header>
+
+      {/* Profile & Leaderboard Dialogs */}
+      <UserProfile open={showProfile} onOpenChange={setShowProfile} />
+      <Leaderboard open={showLeaderboard} onOpenChange={setShowLeaderboard} />
+      <YouTubeToChecklist 
+        open={showYouTubeAI} 
+        onOpenChange={setShowYouTubeAI}
+        onChecklistGenerated={(markdown) => {
+          const parsed = parseMarkdownChecklist(markdown);
+          createFromMarkdown(markdown, parsed);
+          setShowYouTubeAI(false);
+        }}
+      />
 
       {/* Main Content */}
       <main className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
@@ -364,6 +466,52 @@ function HomeContent() {
                       {activeChecklist.type === "markdown" ? "Markdown" : "Quick"}
                     </Badge>
                   </div>
+                  
+                  {/* Checklist Actions */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon">
+                        <MoreHorizontal className="h-5 w-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                      {activeChecklist.type === "markdown" && (
+                        <DropdownMenuItem onClick={() => {
+                          setMarkdownValue(activeChecklist.markdown || "");
+                          setShowMarkdownInput(true);
+                        }}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Edit Markdown
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem onClick={() => {
+                        duplicateChecklist(activeChecklist.id);
+                        toast.success("Checklist duplicated!");
+                      }}>
+                        <Copy className="mr-2 h-4 w-4" />
+                        Duplicate
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => {
+                        const data = JSON.stringify(activeChecklist, null, 2);
+                        navigator.clipboard.writeText(data);
+                        toast.success("Copied to clipboard!");
+                      }}>
+                        <Download className="mr-2 h-4 w-4" />
+                        Export JSON
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => {
+                          deleteChecklist(activeChecklist.id);
+                          toast.success("Checklist deleted");
+                        }}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
 
                 {/* Quick Task Adder for Quick Lists */}
@@ -391,6 +539,7 @@ function HomeContent() {
                   }
                   onUpdate={handleUpdateChecklist}
                   compactMode={viewSettings.compactMode}
+                  minimalUI={minimalUI}
                 />
               </div>
             ) : (
@@ -419,6 +568,15 @@ function HomeContent() {
                   >
                     <FileText className="h-4 w-4 mr-2" />
                     Import Markdown
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowYouTubeAI(true)}
+                    size="lg"
+                    className="w-full sm:w-auto bg-linear-to-r from-purple-500/10 to-pink-500/10 border-purple-500/30 hover:border-purple-500/50"
+                  >
+                    <Wand2 className="h-4 w-4 mr-2 text-purple-500" />
+                    AI from YouTube
                   </Button>
                 </div>
 
@@ -451,12 +609,18 @@ function HomeContent() {
           {/* Sidebar - Desktop Only */}
           <aside className="hidden lg:block w-72 xl:w-80 shrink-0 space-y-4">
             <Tabs defaultValue="timer" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="timer" className="text-xs" title="Pomodoro">
                   <Timer className="h-4 w-4" />
                 </TabsTrigger>
                 <TabsTrigger value="stopwatch" className="text-xs" title="Stopwatch">
                   <Clock className="h-4 w-4" />
+                </TabsTrigger>
+                <TabsTrigger value="music" className="text-xs relative" title="Music">
+                  <Music2 className="h-4 w-4" />
+                  {isMusicPlaying && (
+                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full animate-pulse" />
+                  )}
                 </TabsTrigger>
                 <TabsTrigger value="stats" className="text-xs" title="Stats">
                   <BarChart3 className="h-4 w-4" />
@@ -469,13 +633,17 @@ function HomeContent() {
                 </TabsTrigger>
               </TabsList>
               <TabsContent value="timer" className="mt-4 space-y-4">
-                <PomodoroTimer />
-                <FocusSounds />
-                <DailyQuote />
+                <PomodoroTimer minimalUI={minimalUI} />
+                {!minimalUI && <MiniMusicPlayer />}
+                {!minimalUI && <DailyQuote />}
               </TabsContent>
               <TabsContent value="stopwatch" className="mt-4 space-y-4">
-                <StopwatchTimer />
-                <DailyQuote />
+                <StopwatchTimer minimalUI={minimalUI} />
+                {!minimalUI && <MiniMusicPlayer />}
+                {!minimalUI && <DailyQuote />}
+              </TabsContent>
+              <TabsContent value="music" className="mt-4 space-y-4">
+                <FocusSounds minimalUI={minimalUI} />
               </TabsContent>
               <TabsContent value="stats" className="mt-4 space-y-4">
                 <StatsOverview />
@@ -493,7 +661,7 @@ function HomeContent() {
 
       {/* Footer */}
       <footer className="border-t mt-auto">
-        <div className="container mx-auto px-4 py-4">
+        <div className="container mx-auto px-4 py-3">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
               📋 {checklists.length} checklists • ⏱️ Pomodoro timer • 📊 Track progress • 📝 Take notes
@@ -516,7 +684,9 @@ export default function Home() {
     <StudyProvider>
       <ViewProvider>
         <ChecklistProvider>
-          <HomeContent />
+          <MusicProvider>
+            <HomeContent />
+          </MusicProvider>
         </ChecklistProvider>
       </ViewProvider>
     </StudyProvider>

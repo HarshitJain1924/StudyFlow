@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, FileText, List, MoreHorizontal, Trash2, Copy, Pencil, ChevronDown, Sparkles, Target } from "lucide-react";
+import { Plus, FileText, List, MoreHorizontal, Trash2, Copy, Pencil, ChevronDown, Sparkles, Target, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChecklists, Checklist } from "@/lib/checklist-store";
 import { Button } from "@/components/ui/button";
@@ -105,7 +105,7 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
       <div
         key={checklist.id}
         className={cn(
-          "group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all",
+          "group flex items-start gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-all",
           isActive
             ? "bg-primary text-primary-foreground"
             : "hover:bg-muted"
@@ -115,14 +115,14 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
           onClose();
         }}
       >
-        <span className="text-lg shrink-0">{checklist.emoji || (checklist.type === "markdown" ? "📄" : "📋")}</span>
+        <span className="text-sm shrink-0 mt-0.5">{checklist.emoji || (checklist.type === "markdown" ? "📄" : "📋")}</span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{checklist.title}</p>
+          <p className="text-xs font-medium leading-tight line-clamp-2">{checklist.title}</p>
           <p className={cn(
-            "text-xs",
+            "text-[10px] mt-0.5",
             isActive ? "text-primary-foreground/70" : "text-muted-foreground"
           )}>
-            {checklist.totalCompleted}/{checklist.totalItems} tasks • {progress}%
+            {checklist.totalCompleted}/{checklist.totalItems} • {progress}%
           </p>
         </div>
         <DropdownMenu>
@@ -131,11 +131,13 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
               variant="ghost"
               size="icon"
               className={cn(
-                "h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity",
-                isActive && "text-primary-foreground hover:bg-primary-foreground/20"
+                "h-5 w-5 shrink-0",
+                isActive 
+                  ? "text-primary-foreground hover:bg-primary-foreground/20" 
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
@@ -147,9 +149,16 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
               <Copy className="mr-2 h-4 w-4" />
               Duplicate
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => {
+              const data = JSON.stringify(checklist, null, 2);
+              navigator.clipboard.writeText(data);
+            }}>
+              <Download className="mr-2 h-4 w-4" />
+              Export JSON
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="text-destructive"
+              className="text-destructive focus:text-destructive"
               onClick={() => deleteChecklist(checklist.id)}
             >
               <Trash2 className="mr-2 h-4 w-4" />
@@ -170,7 +179,7 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
         )}
       >
         {/* Header */}
-        <div className="pt-20 ">
+        <div className="pt-20">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-lg">My Checklists</h2>
           </div>

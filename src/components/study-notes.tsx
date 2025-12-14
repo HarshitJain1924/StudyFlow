@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useUser } from "@clerk/nextjs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
 
 import {
   Dialog,
@@ -14,7 +16,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { StickyNote, Plus, Trash2, Edit2, Save, X, Clock } from "lucide-react";
+import { StickyNote, Plus, Trash2, Edit2, Save, X, Clock, Cloud, RefreshCw } from "lucide-react";
 
 interface Note {
   id: string;
@@ -37,13 +39,16 @@ const NOTE_COLORS = [
 ];
 
 export function StudyNotes() {
+  const { user } = useUser();
   const [notes, setNotes] = useState<Note[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
   const [selectedColor, setSelectedColor] = useState(NOTE_COLORS[0]);
+  const [isSyncing, setIsSyncing] = useState(false);
 
+  // Load notes from localStorage
   useEffect(() => {
     const saved = localStorage.getItem(NOTES_KEY);
     if (saved) {
@@ -55,9 +60,66 @@ export function StudyNotes() {
     }
   }, []);
 
+  // Save notes to localStorage and sync to cloud
   useEffect(() => {
     localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
   }, [notes]);
+
+  // Auto-sync to cloud when user is logged in
+  const syncToCloud = useCallback(async () => {
+    if (!user) return;
+    
+    setIsSyncing(true);
+    try {
+      await fetch("/api/notes", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: JSON.stringify(notes) }),
+      });
+    } catch (error) {
+      console.error("Failed to sync notes:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [user, notes]);
+
+  // Load notes from cloud on mount if user is logged in
+  useEffect(() => {
+    const loadFromCloud = async () => {
+      if (!user) return;
+      
+      try {
+        const res = await fetch("/api/notes");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.content) {
+            try {
+              const cloudNotes = JSON.parse(data.content);
+              if (Array.isArray(cloudNotes) && cloudNotes.length > 0) {
+                setNotes(cloudNotes);
+                localStorage.setItem(NOTES_KEY, data.content);
+              }
+            } catch {
+              // Content is not valid JSON, ignore
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load notes from cloud:", error);
+      }
+    };
+    
+    loadFromCloud();
+  }, [user]);
+
+  const handleSyncNow = async () => {
+    if (!user) {
+      toast.error("Sign in to sync notes to cloud");
+      return;
+    }
+    await syncToCloud();
+    toast.success("Notes synced to cloud!");
+  };
 
   const addNote = () => {
     if (!newTitle.trim() && !newContent.trim()) return;
@@ -71,9 +133,15 @@ export function StudyNotes() {
       updatedAt: new Date().toISOString(),
     };
 
-    setNotes([note, ...notes]);
+    const newNotes = [note, ...notes];
+    setNotes(newNotes);
     resetForm();
     setIsDialogOpen(false);
+    
+    // Auto-sync to cloud
+    if (user) {
+      setTimeout(() => syncToCloud(), 500);
+    }
   };
 
   const updateNote = () => {
@@ -94,10 +162,20 @@ export function StudyNotes() {
     );
     resetForm();
     setIsDialogOpen(false);
+    
+    // Auto-sync to cloud
+    if (user) {
+      setTimeout(() => syncToCloud(), 500);
+    }
   };
 
   const deleteNote = (id: string) => {
     setNotes(notes.filter((n) => n.id !== id));
+    
+    // Auto-sync to cloud
+    if (user) {
+      setTimeout(() => syncToCloud(), 500);
+    }
   };
 
   const startEditing = (note: Note) => {
@@ -131,6 +209,21 @@ export function StudyNotes() {
           <CardTitle className="text-sm flex items-center gap-2">
             <StickyNote className="h-4 w-4" />
             Study Notes
+            {user && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleSyncNow}
+                disabled={isSyncing}
+              >
+                {isSyncing ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Cloud className="h-3 w-3" />
+                )}
+              </Button>
+            )}
           </CardTitle>
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);

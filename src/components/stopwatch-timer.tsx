@@ -23,7 +23,11 @@ interface LapTime {
   delta: number;
 }
 
-export function StopwatchTimer() {
+interface StopwatchTimerProps {
+  minimalUI?: boolean;
+}
+
+export function StopwatchTimer({ minimalUI = false }: StopwatchTimerProps) {
   const { addStudyTime, addSession } = useStudy();
   const [time, setTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
@@ -159,7 +163,7 @@ export function StopwatchTimer() {
 
   return (
     <Card className="overflow-hidden">
-      <div className="h-1 bg-violet-500" />
+      {!minimalUI && <div className="h-1 bg-violet-500" />}
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">

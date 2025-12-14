@@ -38,20 +38,20 @@ export function OverallProgress({ title, emoji, completed, total }: OverallProgr
       isComplete && "border-green-500 shadow-green-500/20 shadow-lg"
     )}>
       <div className={cn(
-        "h-1.5 transition-all duration-500",
+        "h-1 transition-all duration-500",
         progress < 25 && "bg-red-500",
         progress >= 25 && progress < 50 && "bg-orange-500",
         progress >= 50 && progress < 75 && "bg-yellow-500",
         progress >= 75 && "bg-green-500"
       )} style={{ width: `${progress}%` }} />
       
-      <CardContent className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            {emoji && <span className="text-3xl">{emoji}</span>}
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            {emoji && <span className="text-2xl">{emoji}</span>}
             <div>
-              <h2 className="text-xl font-bold">{title}</h2>
-              <p className="text-sm text-muted-foreground">
+              <h2 className="text-lg font-bold">{title}</h2>
+              <p className="text-xs text-muted-foreground">
                 {getMotivationalMessage()}
               </p>
             </div>
@@ -59,22 +59,22 @@ export function OverallProgress({ title, emoji, completed, total }: OverallProgr
           
           <div className="flex items-center gap-2">
             {isComplete ? (
-              <Trophy className="h-8 w-8 text-yellow-500 animate-bounce" />
+              <Trophy className="h-6 w-6 text-yellow-500 animate-bounce" />
             ) : (
-              <Target className={cn("h-8 w-8", getProgressColor())} />
+              <Target className={cn("h-6 w-6", getProgressColor())} />
             )}
           </div>
         </div>
         
-        <div className="space-y-2">
-          <div className="flex justify-between text-sm">
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-xs">
             <span className="text-muted-foreground">Progress</span>
             <span className={cn("font-bold", getProgressColor())}>
               {progress}%
             </span>
           </div>
-          <Progress value={progress} className="h-3" />
-          <div className="flex justify-between text-sm">
+          <Progress value={progress} className="h-2" />
+          <div className="flex justify-between text-xs">
             <span className="text-muted-foreground">
               {completed} of {total} tasks completed
             </span>
@@ -85,29 +85,29 @@ export function OverallProgress({ title, emoji, completed, total }: OverallProgr
         </div>
         
         {/* Achievement badges */}
-        <div className="flex gap-2 mt-4 flex-wrap">
+        <div className="flex gap-1.5 mt-3 flex-wrap">
           {progress >= 25 && (
-            <div className="flex items-center gap-1 bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 px-2 py-1 rounded-full text-xs">
-              <Flame className="h-3 w-3" />
-              25% Milestone
+            <div className="flex items-center gap-1 bg-orange-100 dark:bg-orange-950 text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded-full text-[10px]">
+              <Flame className="h-2.5 w-2.5" />
+              25%
             </div>
           )}
           {progress >= 50 && (
-            <div className="flex items-center gap-1 bg-yellow-100 dark:bg-yellow-950 text-yellow-600 dark:text-yellow-400 px-2 py-1 rounded-full text-xs">
-              <Star className="h-3 w-3" />
-              Halfway There
+            <div className="flex items-center gap-1 bg-yellow-100 dark:bg-yellow-950 text-yellow-600 dark:text-yellow-400 px-1.5 py-0.5 rounded-full text-[10px]">
+              <Star className="h-2.5 w-2.5" />
+              50%
             </div>
           )}
           {progress >= 75 && (
-            <div className="flex items-center gap-1 bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-2 py-1 rounded-full text-xs">
-              <Target className="h-3 w-3" />
-              75% Champion
+            <div className="flex items-center gap-1 bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded-full text-[10px]">
+              <Target className="h-2.5 w-2.5" />
+              75%
             </div>
           )}
           {progress === 100 && (
-            <div className="flex items-center gap-1 bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400 px-2 py-1 rounded-full text-xs">
-              <Trophy className="h-3 w-3" />
-              Complete!
+            <div className="flex items-center gap-1 bg-green-100 dark:bg-green-950 text-green-600 dark:text-green-400 px-1.5 py-0.5 rounded-full text-[10px]">
+              <Trophy className="h-2.5 w-2.5" />
+              Done!
             </div>
           )}
         </div>
