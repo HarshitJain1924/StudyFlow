@@ -163,7 +163,6 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(ACTIVE_CHECKLIST_KEY);
     }
   }, [activeChecklistId, isLoaded]);
-  }, [activeChecklistId, isLoaded]);
 
   const activeChecklist = checklists.find((c) => c.id === activeChecklistId) || null;
 
