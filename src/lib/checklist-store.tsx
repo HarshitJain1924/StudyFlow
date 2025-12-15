@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from "react";
+import { useUser } from "@clerk/nextjs";
 import { ParsedChecklist, TodoSection, TodoItem } from "./markdown-parser";
 
 export interface Checklist {
@@ -28,23 +29,30 @@ interface ChecklistStore {
   addTaskToChecklist: (checklistId: string, sectionId: string, task: Omit<TodoItem, "id" | "children">) => void;
   addSectionToChecklist: (checklistId: string, title: string, emoji?: string) => void;
   duplicateChecklist: (id: string) => Checklist;
+  syncToCloud: () => Promise<void>;
+  isSyncing: boolean;
 }
 
 const ChecklistContext = createContext<ChecklistStore | undefined>(undefined);
 
 const CHECKLISTS_KEY = "markdown-todo-checklists";
 const ACTIVE_CHECKLIST_KEY = "markdown-todo-active-checklist";
+const LAST_SYNC_KEY = "markdown-todo-last-sync";
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }
 
 export function ChecklistProvider({ children }: { children: ReactNode }) {
+  const { user, isSignedIn } = useUser();
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSyncedDataRef = useRef<string>("");
 
-  // Load from localStorage
+  // Load from localStorage first, then sync with cloud
   useEffect(() => {
     const savedChecklists = localStorage.getItem(CHECKLISTS_KEY);
     const savedActiveId = localStorage.getItem(ACTIVE_CHECKLIST_KEY);
@@ -65,11 +73,87 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     setIsLoaded(true);
   }, []);
 
-  // Save to localStorage
+  // Fetch from cloud when user signs in
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !user) return;
+
+    const fetchFromCloud = async () => {
+      try {
+        const res = await fetch("/api/checklists");
+        if (res.ok) {
+          const cloudChecklists = await res.json();
+          if (cloudChecklists.length > 0) {
+            // Merge: use cloud data as source of truth, but keep local items not in cloud
+            const cloudIds = new Set(cloudChecklists.map((c: Checklist) => c.id));
+            const localOnly = checklists.filter(c => !cloudIds.has(c.id));
+            
+            // Combine and sort by updatedAt
+            const merged = [...cloudChecklists, ...localOnly].sort(
+              (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+            );
+            setChecklists(merged);
+            lastSyncedDataRef.current = JSON.stringify(merged);
+          } else if (checklists.length > 0) {
+            // No cloud data, sync local to cloud
+            syncToCloud();
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch checklists from cloud:", error);
+      }
+    };
+
+    fetchFromCloud();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, isSignedIn, user]);
+
+  // Sync to cloud function
+  const syncToCloud = useCallback(async () => {
+    if (!isSignedIn || isSyncing) return;
+    
+    const currentData = JSON.stringify(checklists);
+    if (currentData === lastSyncedDataRef.current) return;
+
+    setIsSyncing(true);
+    try {
+      const res = await fetch("/api/checklists", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checklists }),
+      });
+      
+      if (res.ok) {
+        lastSyncedDataRef.current = currentData;
+        localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
+      }
+    } catch (error) {
+      console.error("Failed to sync checklists to cloud:", error);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSignedIn, isSyncing, checklists]);
+
+  // Save to localStorage and debounced cloud sync
   useEffect(() => {
     if (!isLoaded) return;
     localStorage.setItem(CHECKLISTS_KEY, JSON.stringify(checklists));
-  }, [checklists, isLoaded]);
+    
+    // Debounced cloud sync
+    if (isSignedIn) {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+      syncTimeoutRef.current = setTimeout(() => {
+        syncToCloud();
+      }, 2000); // Sync after 2 seconds of inactivity
+    }
+
+    return () => {
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+      }
+    };
+  }, [checklists, isLoaded, isSignedIn, syncToCloud]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -78,6 +162,7 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     } else {
       localStorage.removeItem(ACTIVE_CHECKLIST_KEY);
     }
+  }, [activeChecklistId, isLoaded]);
   }, [activeChecklistId, isLoaded]);
 
   const activeChecklist = checklists.find((c) => c.id === activeChecklistId) || null;
@@ -260,6 +345,8 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
         addTaskToChecklist,
         addSectionToChecklist,
         duplicateChecklist,
+        syncToCloud,
+        isSyncing,
       }}
     >
       {children}

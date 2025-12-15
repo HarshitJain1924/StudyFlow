@@ -19,6 +19,7 @@ Transform your markdown checklists into a powerful productivity app with AI-powe
 - **Cloud Sync**: Your checklists and stats sync across all devices
 - **User Profiles**: View your study stats, level, XP, and badges
 - **Public Leaderboard**: Compete with other users globally
+- **Auto Checklist Sync**: Checklists automatically sync across all devices
 
 ### 📋 Core Task Management
 - **Markdown Parsing**: Paste any markdown checklist and convert it to an interactive todo list
@@ -26,7 +27,8 @@ Transform your markdown checklists into a powerful productivity app with AI-powe
 - **Multiple Checklists**: ChatGPT-style sidebar to manage multiple lists
 - **File Upload**: Upload `.md` files directly
 - **Nested Tasks**: Support for deeply nested subtasks with collapsible sections
-- **Auto-Save**: Your progress is automatically saved locally and to the cloud
+- **Auto-Save**: Your progress is automatically saved locally and synced to cloud
+- **Real-time Sync**: Changes sync to cloud within 2 seconds
 - **Due Dates**: Add due dates with calendar picker (Today, Tomorrow, Next Week shortcuts)
 - **Tags/Categories**: Organize tasks with color-coded tags (Work, Personal, Study, Health, Finance, Home)
 - **Recurring Tasks**: Set tasks to repeat daily, weekly, or monthly
@@ -46,6 +48,7 @@ Transform your markdown checklists into a powerful productivity app with AI-powe
 - **Auto-switch**: Automatically switches between work and break modes
 - **Sound & Desktop Notifications**: Get notified when timer completes
 - **Long Breaks**: Automatic long break after 4 sessions
+- **Background-safe**: Timer continues accurately even when tab is in background
 - **Minimal UI Mode**: Clean, distraction-free timer display
 
 ### ⏱️ Stopwatch Timer

@@ -267,7 +267,7 @@ export function FocusSounds({ minimalUI = false }: FocusSoundsProps) {
             onValueChange={handleVolumeChange}
             max={1}
             step={0.01}
-            className="flex-1"
+            className="w-20"
           />
         </div>
 

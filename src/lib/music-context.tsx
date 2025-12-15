@@ -88,6 +88,7 @@ export function MusicProvider({ children }: { children: React.ReactNode }) {
   const [likedTracks, setLikedTracks] = useState<Set<string>>(new Set());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const shouldAutoPlayRef = useRef(false);
   const currentTrack = tracks[currentTrackIndex];
 
   // Update Media Session metadata when track changes
@@ -268,6 +269,8 @@ export function MusicProvider({ children }: { children: React.ReactNode }) {
         audio.currentTime = 0;
         audio.play().catch(console.error);
       } else {
+        // Set flag to auto-play next track
+        shouldAutoPlayRef.current = true;
         // Play next (with shuffle consideration)
         if (isShuffle) {
           let nextIndex;
@@ -290,14 +293,15 @@ export function MusicProvider({ children }: { children: React.ReactNode }) {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
 
-    const wasPlaying = isPlaying;
+    const shouldAutoPlay = shouldAutoPlayRef.current || isPlaying;
     audio.src = currentTrack.file;
     audio.load();
     setCurrentTime(0);
     setIsLoading(true);
 
-    if (wasPlaying) {
+    if (shouldAutoPlay) {
       audio.play().catch(console.error);
+      shouldAutoPlayRef.current = false;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrackIndex]);

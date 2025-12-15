@@ -45,6 +45,7 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
   const [showSettings, setShowSettings] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const startTimeRef = useRef<number | null>(null);
+  const remainingTimeRef = useRef<number>(settings.pomodoro.workDuration * 60);
 
   const getDuration = useCallback(
     (timerMode: TimerMode) => {
@@ -135,19 +136,29 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
     let interval: NodeJS.Timeout;
 
     if (isRunning && timeLeft > 0) {
+      startTimeRef.current = Date.now();
+      remainingTimeRef.current = timeLeft;
+      
       interval = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
+        const elapsed = Math.floor((Date.now() - (startTimeRef.current || Date.now())) / 1000);
+        const newTimeLeft = Math.max(0, remainingTimeRef.current - elapsed);
+        setTimeLeft(newTimeLeft);
+        
+        if (newTimeLeft === 0) {
+          handleTimerComplete();
+        }
+      }, 100); // Check more frequently for accuracy
     } else if (isRunning && timeLeft === 0) {
       handleTimerComplete();
     }
 
     return () => clearInterval(interval);
-  }, [isRunning, timeLeft, handleTimerComplete]);
+  }, [isRunning, handleTimerComplete]);
 
   const toggleTimer = () => {
     if (!isRunning) {
       startTimeRef.current = Date.now();
+      remainingTimeRef.current = timeLeft;
     }
     setIsRunning(!isRunning);
   };
