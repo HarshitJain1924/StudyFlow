@@ -23,11 +23,19 @@ interface TodoSectionProps {
 export function TodoSection({ section, onToggleItem, onToggleAll, onEditItem, onDeleteItem, compact = false }: TodoSectionProps) {
   const [isOpen, setIsOpen] = useState(true);
   
-  const progress = section.totalCount > 0 
-    ? Math.round((section.completedCount / section.totalCount) * 100) 
+  // Defensive: ensure values are valid numbers
+  const totalCount = typeof section.totalCount === 'number' && !isNaN(section.totalCount) 
+    ? section.totalCount 
+    : (section.items?.length || 0);
+  const completedCount = typeof section.completedCount === 'number' && !isNaN(section.completedCount)
+    ? Math.min(section.completedCount, totalCount)
     : 0;
   
-  const isComplete = section.completedCount === section.totalCount && section.totalCount > 0;
+  const progress = totalCount > 0 
+    ? Math.round((completedCount / totalCount) * 100) 
+    : 0;
+  
+  const isComplete = completedCount === totalCount && totalCount > 0;
   
   const handleToggleItem = (itemId: string, completed: boolean) => {
     onToggleItem(section.id, itemId, completed);
@@ -52,8 +60,9 @@ export function TodoSection({ section, onToggleItem, onToggleAll, onEditItem, on
 
   return (
     <Card className={cn(
-      "transition-all duration-300",
-      isComplete && "border-green-500/50 bg-green-50/30 dark:bg-green-950/10"
+      "transition-all duration-300 hover:shadow-md",
+      isComplete && "border-green-500/50 bg-gradient-to-br from-green-50/50 to-transparent dark:from-green-950/20 dark:to-transparent",
+      !isComplete && progress > 0 && "border-l-4 border-l-primary/30"
     )}>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CardHeader className={cn("pb-3", compact && "py-2")}>
@@ -91,7 +100,7 @@ export function TodoSection({ section, onToggleItem, onToggleAll, onEditItem, on
               )}
               
               <Badge variant={isComplete ? "default" : "secondary"} className="font-mono">
-                {section.completedCount}/{section.totalCount}
+                {completedCount}/{totalCount}
               </Badge>
               
               {isComplete ? (

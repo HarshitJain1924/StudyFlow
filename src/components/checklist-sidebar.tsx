@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Plus, FileText, List, MoreHorizontal, Trash2, Copy, Pencil, ChevronDown, Sparkles, Target, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChecklists, Checklist } from "@/lib/checklist-store";
@@ -57,19 +57,11 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
   const [editingChecklist, setEditingChecklist] = useState<Checklist | null>(null);
   const [todayExpanded, setTodayExpanded] = useState(true);
   const [previousExpanded, setPreviousExpanded] = useState(true);
-  const [todayString, setTodayString] = useState<string | null>(null);
 
-  // Set today's date string after mount to avoid hydration mismatch
-  useEffect(() => {
-    setTodayString(new Date().toDateString());
-  }, []);
+  const todayString = useMemo(() => new Date().toDateString(), []);
 
-  const todayChecklists = todayString
-    ? checklists.filter((c) => new Date(c.createdAt).toDateString() === todayString)
-    : [];
-  const previousChecklists = todayString
-    ? checklists.filter((c) => new Date(c.createdAt).toDateString() !== todayString)
-    : checklists;
+  const todayChecklists = checklists.filter((c) => new Date(c.createdAt).toDateString() === todayString);
+  const previousChecklists = checklists.filter((c) => new Date(c.createdAt).toDateString() !== todayString);
 
   const handleCreateQuick = () => {
     if (!newTitle.trim()) return;
@@ -103,7 +95,6 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
 
     return (
       <div
-        key={checklist.id}
         className={cn(
           "group flex items-start gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-all",
           isActive
@@ -258,7 +249,11 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
                     <span className="ml-auto">{todayChecklists.length}</span>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-1 mt-1">
-                    {todayChecklists.map(renderChecklistItem)}
+                    {todayChecklists.map(checklist => (
+                      <div key={checklist.id || `${checklist.title}-${checklist.createdAt}`}>
+                        {renderChecklistItem(checklist)}
+                      </div>
+                    ))}
                   </CollapsibleContent>
                 </Collapsible>
               )}
@@ -272,7 +267,11 @@ export function ChecklistSidebar({ isOpen, onClose, onCreateFromMarkdown, onOpen
                     <span className="ml-auto">{previousChecklists.length}</span>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-1 mt-1">
-                    {previousChecklists.map(renderChecklistItem)}
+                    {previousChecklists.map(checklist => (
+                      <div key={checklist.id || `${checklist.title}-${checklist.createdAt}`}>
+                        {renderChecklistItem(checklist)}
+                      </div>
+                    ))}
                   </CollapsibleContent>
                 </Collapsible>
               )}

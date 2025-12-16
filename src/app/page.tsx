@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useUser, SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import { MarkdownInput } from "@/components/markdown-input";
 import { TodoList } from "@/components/todo-list";
 import { PomodoroTimer } from "@/components/pomodoro-timer";
-import { StopwatchTimer } from "@/components/stopwatch-timer";
 import { StatsOverview } from "@/components/stats-overview";
 import { StudyNotes } from "@/components/study-notes";
 import { SettingsPanel } from "@/components/settings-panel";
@@ -24,6 +23,8 @@ import { StudyProvider } from "@/lib/study-context";
 import { ViewProvider, useViewSettings } from "@/lib/view-context";
 import { ChecklistProvider, useChecklists } from "@/lib/checklist-store";
 import { MusicProvider, useMusic } from "@/lib/music-context";
+import { TimerProvider } from "@/lib/timer-context";
+import { BackgroundTimerIndicator } from "@/components/background-timer-indicator";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useServiceWorker, usePWAInstall } from "@/hooks/use-pwa";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,6 @@ import {
   CheckSquare,
   Moon,
   Sun,
-  Github,
   Timer,
   BarChart3,
   StickyNote,
@@ -60,10 +60,8 @@ import {
   List,
   Sparkles,
   Settings,
-  Clock,
   Target,
   Trophy,
-  User,
   LogIn,
   Wand2,
   MoreHorizontal,
@@ -75,14 +73,27 @@ import {
   EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
 
 function HomeContent() {
   const [showMarkdownInput, setShowMarkdownInput] = useState(false);
   const [markdownValue, setMarkdownValue] = useState("");
-  const [isDark, setIsDark] = useState(false);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const savedTheme = localStorage.getItem("theme");
+      return savedTheme === "dark" || (!savedTheme && prefersDark);
+    }
+    return false;
+  });
+  const isLoaded = typeof window !== 'undefined';
   const [showShortcuts, setShowShortcuts] = useState(false);
-  const [isOnline, setIsOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return navigator.onLine;
+    }
+    return true;
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showGoalsPage, setShowGoalsPage] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -90,7 +101,6 @@ function HomeContent() {
   const [showYouTubeAI, setShowYouTubeAI] = useState(false);
   const [minimalUI, setMinimalUI] = useState(false);
   
-  const { user } = useUser();
   const { settings: viewSettings, toggleCompactMode } = useViewSettings();
   const { isPlaying: isMusicPlaying } = useMusic();
   const { isUpdateAvailable, updateApp } = useServiceWorker();
@@ -107,25 +117,21 @@ function HomeContent() {
     duplicateChecklist,
   } = useChecklists();
 
-  // Load preferences on mount
+  // Apply dark mode class when isDark changes
   useEffect(() => {
-    // Check for dark mode preference
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const savedTheme = localStorage.getItem("theme");
-    const shouldBeDark = savedTheme === "dark" || (!savedTheme && prefersDark);
-    setIsDark(shouldBeDark);
-    if (shouldBeDark) {
+    if (isDark) {
       document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
     }
-    
-    // Check online status
-    setIsOnline(navigator.onLine);
+  }, [isDark]);
+
+  // Set up online/offline listeners on mount
+  useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-    
-    setIsLoaded(true);
     
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -205,7 +211,7 @@ function HomeContent() {
       <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-6">
         <div className="text-center max-w-md px-6">
           <p className="text-sm italic text-amber-600 dark:text-amber-400">
-            "The secret of getting ahead is getting started."
+            &ldquo;The secret of getting ahead is getting started.&rdquo;
           </p>
           <p className="text-xs text-amber-500/70 mt-1">— Mark Twain</p>
         </div>
@@ -360,7 +366,6 @@ function HomeContent() {
                       Goals & Targets
                     </Button>
                     <PomodoroTimer />
-                    <StopwatchTimer />
                     <FocusSounds />
                     <DailyQuote />
                     <StatsOverview />
@@ -410,9 +415,9 @@ function HomeContent() {
                   className="rounded-full"
                   asChild
                 >
-                  <a href="/sign-in">
+                  <Link href="/sign-in">
                     <LogIn className="h-5 w-5" />
-                  </a>
+                  </Link>
                 </Button>
               </SignedOut>
             </div>
@@ -426,17 +431,18 @@ function HomeContent() {
       <YouTubeToChecklist 
         open={showYouTubeAI} 
         onOpenChange={setShowYouTubeAI}
-        onChecklistGenerated={(markdown) => {
+        onChecklistGenerated={(markdown, videoUrls) => {
           const parsed = parseMarkdownChecklist(markdown);
-          createFromMarkdown(markdown, parsed);
+          createFromMarkdown(markdown, parsed, videoUrls);
           setShowYouTubeAI(false);
         }}
       />
 
       {/* Main Content */}
-      <main className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
+      <main className="flex-1">
+        <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-6">
         <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
-          {/* Main Todo Area */}
+          {/* Main Todo Area - scrollable */}
           <div className="flex-1 min-w-0">
             {showGoalsPage ? (
               <GoalsPage onBack={() => setShowGoalsPage(false)} />
@@ -458,13 +464,19 @@ function HomeContent() {
             ) : activeChecklist ? (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-4">
                 {/* Active Checklist Header */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">{activeChecklist.emoji || "📋"}</span>
-                    <h2 className="text-xl font-semibold">{activeChecklist.title}</h2>
-                    <Badge variant="secondary" className="ml-2">
-                      {activeChecklist.type === "markdown" ? "Markdown" : "Quick"}
-                    </Badge>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{activeChecklist.emoji || "📋"}</span>
+                      <h2 className="text-xl font-semibold truncate">{activeChecklist.title}</h2>
+                      <Badge variant="secondary" className="shrink-0">
+                        {activeChecklist.type === "markdown" ? "Markdown" : "Quick"}
+                      </Badge>
+                    </div>
+                    {/* Date created */}
+                    <p className="text-xs text-muted-foreground mt-1 ml-9">
+                      Created {new Date(activeChecklist.createdAt).toLocaleDateString()}
+                    </p>
                   </div>
                   
                   {/* Checklist Actions */}
@@ -540,6 +552,7 @@ function HomeContent() {
                   onUpdate={handleUpdateChecklist}
                   compactMode={viewSettings.compactMode}
                   minimalUI={minimalUI}
+                  youtubeUrls={activeChecklist.youtubeUrls}
                 />
               </div>
             ) : (
@@ -606,71 +619,73 @@ function HomeContent() {
             )}
           </div>
 
-          {/* Sidebar - Desktop Only */}
-          <aside className="hidden lg:block w-72 xl:w-80 shrink-0 space-y-4">
-            <Tabs defaultValue="timer" className="w-full">
-              <TabsList className="grid w-full grid-cols-6">
-                <TabsTrigger value="timer" className="text-xs" title="Pomodoro">
-                  <Timer className="h-4 w-4" />
-                </TabsTrigger>
-                <TabsTrigger value="stopwatch" className="text-xs" title="Stopwatch">
-                  <Clock className="h-4 w-4" />
-                </TabsTrigger>
-                <TabsTrigger value="music" className="text-xs relative" title="Music">
-                  <Music2 className="h-4 w-4" />
-                  {isMusicPlaying && (
-                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full animate-pulse" />
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="stats" className="text-xs" title="Stats">
-                  <BarChart3 className="h-4 w-4" />
-                </TabsTrigger>
-                <TabsTrigger value="notes" className="text-xs" title="Notes">
-                  <StickyNote className="h-4 w-4" />
-                </TabsTrigger>
-                <TabsTrigger value="settings" className="text-xs" title="Settings">
-                  <Settings className="h-4 w-4" />
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="timer" className="mt-4 space-y-4">
-                <PomodoroTimer minimalUI={minimalUI} />
-                {!minimalUI && <MiniMusicPlayer />}
-                {!minimalUI && <DailyQuote />}
-              </TabsContent>
-              <TabsContent value="stopwatch" className="mt-4 space-y-4">
-                <StopwatchTimer minimalUI={minimalUI} />
-                {!minimalUI && <MiniMusicPlayer />}
-                {!minimalUI && <DailyQuote />}
-              </TabsContent>
-              <TabsContent value="music" className="mt-4 space-y-4">
-                <FocusSounds minimalUI={minimalUI} />
-              </TabsContent>
-              <TabsContent value="stats" className="mt-4 space-y-4">
-                <StatsOverview />
-              </TabsContent>
-              <TabsContent value="notes" className="mt-4">
-                <StudyNotes />
-              </TabsContent>
-              <TabsContent value="settings" className="mt-4">
-                <SettingsPanel />
-              </TabsContent>
-            </Tabs>
+          {/* Sidebar - Desktop Only - Sticky */}
+          <aside className="hidden lg:block w-72 xl:w-80 shrink-0">
+            <div className="sticky top-20 w-full">
+                <Tabs defaultValue="timer" className="w-full">
+                <TabsList className="grid w-full grid-cols-5 bg-background/95 backdrop-blur-sm">
+                  <TabsTrigger value="timer" className="text-xs" title="Pomodoro">
+                    <Timer className="h-4 w-4" />
+                  </TabsTrigger>
+                  <TabsTrigger value="music" className="text-xs relative" title="Music">
+                    <Music2 className="h-4 w-4" />
+                    {isMusicPlaying && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-primary rounded-full animate-pulse" />
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="stats" className="text-xs" title="Stats">
+                    <BarChart3 className="h-4 w-4" />
+                  </TabsTrigger>
+                  <TabsTrigger value="notes" className="text-xs" title="Notes">
+                    <StickyNote className="h-4 w-4" />
+                  </TabsTrigger>
+                  <TabsTrigger value="settings" className="text-xs" title="Settings">
+                    <Settings className="h-4 w-4" />
+                  </TabsTrigger>
+                </TabsList>
+
+                <div className="mt-4">
+                  <TabsContent value="timer" className="space-y-4">
+                    <PomodoroTimer minimalUI={minimalUI} />
+                    {!minimalUI && <MiniMusicPlayer />}
+                    {!minimalUI && <DailyQuote />}
+                  </TabsContent>
+                  <TabsContent value="music" className="space-y-4">
+                    <FocusSounds minimalUI={minimalUI} />
+                  </TabsContent>
+                  <TabsContent value="stats" className="space-y-4">
+                    <StatsOverview />
+                  </TabsContent>
+                  <TabsContent value="notes">
+                    <StudyNotes />
+                  </TabsContent>
+                  <TabsContent value="settings">
+                    <SettingsPanel />
+                  </TabsContent>
+                </div>
+              </Tabs>
+            </div>
           </aside>
+        </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="border-t mt-auto">
-        <div className="container mx-auto px-4 py-3">
+      <footer className="border-t bg-background/95 backdrop-blur-sm mt-8">
+        <div className="container mx-auto px-4 py-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">
-              📋 {checklists.length} checklists • ⏱️ Pomodoro timer • 📊 Track progress • 📝 Take notes
+              📋 {checklists.length} checklists • ⏱️ Pomodoro • 📊 Stats • 📝 Notes
             </p>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline" className="font-mono text-[10px]">Alt+S</Badge>
-              <span>sidebar</span>
-              <Badge variant="outline" className="font-mono text-[10px]">/</Badge>
-              <span>shortcuts</span>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="font-mono text-[10px]">Alt+S</Badge>
+                <span>sidebar</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Badge variant="outline" className="font-mono text-[10px]">/</Badge>
+                <span>shortcuts</span>
+              </div>
             </div>
           </div>
         </div>
@@ -685,7 +700,10 @@ export default function Home() {
       <ViewProvider>
         <ChecklistProvider>
           <MusicProvider>
-            <HomeContent />
+            <TimerProvider>
+              <HomeContent />
+              <BackgroundTimerIndicator />
+            </TimerProvider>
           </MusicProvider>
         </ChecklistProvider>
       </ViewProvider>

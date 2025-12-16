@@ -71,7 +71,7 @@ const API_KEY_STORAGE_PREFIX = "ai-api-key-";
 interface YouTubeToChecklistProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onChecklistGenerated: (markdown: string) => void;
+  onChecklistGenerated: (markdown: string, videoUrls: string[]) => void;
 }
 
 export function YouTubeToChecklist({ open, onOpenChange, onChecklistGenerated }: YouTubeToChecklistProps) {
@@ -198,7 +198,8 @@ export function YouTubeToChecklist({ open, onOpenChange, onChecklistGenerated }:
   };
 
   const useChecklist = () => {
-    onChecklistGenerated(generatedMarkdown);
+    const validUrls = videoUrls.filter(url => url.trim() && extractVideoId(url.trim()));
+    onChecklistGenerated(generatedMarkdown, validUrls);
     onOpenChange(false);
     setGeneratedMarkdown("");
     setVideoUrls([""]);

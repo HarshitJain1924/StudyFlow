@@ -109,7 +109,7 @@ export function TodoItem({ item, onToggle, onEdit, onDelete, depth = 0, compact 
           "group flex items-center gap-3 rounded-lg transition-all",
           compact ? "px-2 py-1" : "px-3 py-2",
           "hover:bg-muted/50",
-          item.completed && "opacity-60"
+          item.completed && "opacity-60 bg-muted/20"
         )}
       >
         {hasChildren && (

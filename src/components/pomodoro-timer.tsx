@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useStudy } from "@/lib/study-context";
+import { useTimer } from "@/lib/timer-context";
 import { formatTimeShort } from "@/lib/study-types";
 import {
   Play,
@@ -17,6 +18,7 @@ import {
   Settings,
   Volume2,
   VolumeX,
+  Save,
 } from "lucide-react";
 import {
   Dialog,
@@ -32,20 +34,143 @@ import { toast } from "sonner";
 
 type TimerMode = "work" | "shortBreak" | "longBreak";
 
+const STORAGE_KEY = "studyflow-pomodoro-state";
+
+interface PomodoroState {
+  mode: TimerMode;
+  timeLeft: number;
+  isRunning: boolean;
+  sessionsCompleted: number;
+  targetEndTime: number; // When the timer should end (for calculating remaining time)
+}
+
 interface PomodoroTimerProps {
   minimalUI?: boolean;
 }
 
 export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
   const { settings, updateSettings, addStudyTime, addSession } = useStudy();
+  const { setPomodoroRunning, updatePomodoroTime, setPomodoroMode } = useTimer();
   const [mode, setMode] = useState<TimerMode>("work");
   const [timeLeft, setTimeLeft] = useState(settings.pomodoro.workDuration * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [sessionsCompleted, setSessionsCompleted] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [studiedTimeThisSession, setStudiedTimeThisSession] = useState(0); // Track time studied in current session
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const startTimeRef = useRef<number | null>(null);
-  const remainingTimeRef = useRef<number>(settings.pomodoro.workDuration * 60);
+  
+  // Timestamp-based timer - stores when timer should end
+  const targetEndTimeRef = useRef<number>(0);
+  const sessionStartTimeRef = useRef<number>(0); // When we started current work session
+  const handleTimerCompleteRef = useRef<() => void>(() => {});
+  const notificationPermissionRef = useRef<NotificationPermission>("default");
+
+  // Request notification permission early (on mount)
+  useEffect(() => {
+    if ("Notification" in window) {
+      notificationPermissionRef.current = Notification.permission;
+    }
+  }, []);
+
+  // Load state from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const state: PomodoroState = JSON.parse(saved);
+        
+        setMode(state.mode);
+        setSessionsCompleted(state.sessionsCompleted);
+        
+        if (state.isRunning && state.targetEndTime > 0) {
+          // Timer was running - calculate remaining time
+          const now = Date.now();
+          const remaining = Math.max(0, Math.ceil((state.targetEndTime - now) / 1000));
+          
+          if (remaining > 0) {
+            setTimeLeft(remaining);
+            targetEndTimeRef.current = state.targetEndTime;
+            setIsRunning(true);
+          } else {
+            // Timer would have completed - reset to start of current mode
+            setTimeLeft(getDuration(state.mode));
+          }
+        } else {
+          // Timer was paused - restore the paused time
+          setTimeLeft(state.timeLeft);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to restore pomodoro state:", e);
+    }
+    setIsHydrated(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    if (!isHydrated) return;
+    
+    const state: PomodoroState = {
+      mode,
+      timeLeft,
+      isRunning,
+      sessionsCompleted,
+      targetEndTime: isRunning ? targetEndTimeRef.current : 0,
+    };
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }, [mode, timeLeft, isRunning, sessionsCompleted, isHydrated]);
+
+  // Helper to request notification permission (called when starting timer)
+  const requestNotificationPermission = useCallback(async () => {
+    if (!("Notification" in window)) return;
+    
+    if (Notification.permission === "default") {
+      const permission = await Notification.requestPermission();
+      notificationPermissionRef.current = permission;
+    } else {
+      notificationPermissionRef.current = Notification.permission;
+    }
+  }, []);
+
+  // Show browser notification
+  const showNotification = useCallback((title: string, body: string) => {
+    if (!("Notification" in window)) return;
+    if (notificationPermissionRef.current !== "granted") return;
+    
+    try {
+      const notification = new Notification(title, {
+        body,
+        icon: "/icon-192x192.png",
+        badge: "/icon-192x192.png",
+        tag: "studyflow-timer",
+        requireInteraction: true, // Stay visible until user interacts
+      });
+      
+      // Focus tab when notification is clicked
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+    } catch (e) {
+      // Notification failed, ignore
+    }
+  }, []);
+
+  // Sync with timer context for background indicator
+  useEffect(() => {
+    setPomodoroRunning(isRunning);
+  }, [isRunning, setPomodoroRunning]);
+
+  useEffect(() => {
+    updatePomodoroTime(timeLeft);
+  }, [timeLeft, updatePomodoroTime]);
+
+  useEffect(() => {
+    setPomodoroMode(mode);
+  }, [mode, setPomodoroMode]);
 
   const getDuration = useCallback(
     (timerMode: TimerMode) => {
@@ -114,58 +239,109 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
 
     setIsRunning(false);
 
-    // Show browser notification too
-    if (settings.notificationsEnabled && "Notification" in window) {
-      Notification.requestPermission().then((permission) => {
-        if (permission === "granted") {
-          new Notification(
-            mode === "work" ? "Break Time! ☕" : "Back to Work! 🎯",
-            {
-              body:
-                mode === "work"
-                  ? "Great work! Take a well-deserved break."
-                  : "Break's over. Let's get back to studying!",
-            }
-          );
-        }
-      });
+    // Show browser notification (permission was already requested on start)
+    if (settings.notificationsEnabled) {
+      showNotification(
+        mode === "work" ? "Break Time! ☕" : "Back to Work! 🎯",
+        mode === "work"
+          ? `Great work! You studied for ${settings.pomodoro.workDuration} minutes. Take a break!`
+          : "Break's over. Let's get back to studying!"
+      );
     }
-  }, [mode, sessionsCompleted, settings, addStudyTime, addSession, playSound]);
+  }, [mode, sessionsCompleted, settings, addStudyTime, addSession, playSound, showNotification]);
 
+  // Store handleTimerComplete in ref so timer effect can access latest version
+  handleTimerCompleteRef.current = handleTimerComplete;
+
+  // TIMESTAMP-BASED TIMER - accurate even when tab is backgrounded
+  // When tab sleeps, interval pauses. When it resumes, we calculate
+  // remaining time from targetEndTime, so it's always accurate on return.
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    if (!isRunning) return;
 
-    if (isRunning && timeLeft > 0) {
-      startTimeRef.current = Date.now();
-      remainingTimeRef.current = timeLeft;
+    // Set target end time when starting
+    targetEndTimeRef.current = Date.now() + timeLeft * 1000;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const remaining = Math.max(0, Math.ceil((targetEndTimeRef.current - now) / 1000));
       
-      interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - (startTimeRef.current || Date.now())) / 1000);
-        const newTimeLeft = Math.max(0, remainingTimeRef.current - elapsed);
-        setTimeLeft(newTimeLeft);
-        
-        if (newTimeLeft === 0) {
-          handleTimerComplete();
-        }
-      }, 100); // Check more frequently for accuracy
-    } else if (isRunning && timeLeft === 0) {
-      handleTimerComplete();
-    }
+      setTimeLeft(remaining);
+
+      if (remaining === 0) {
+        clearInterval(interval);
+        handleTimerCompleteRef.current();
+      }
+    }, 1000);
 
     return () => clearInterval(interval);
-  }, [isRunning, handleTimerComplete]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]); // Only depend on isRunning - timeLeft is captured at start
+
+  // Track studied time when running in work mode
+  useEffect(() => {
+    if (isRunning && mode === "work") {
+      // Starting a work session
+      sessionStartTimeRef.current = Date.now();
+    } else if (!isRunning && sessionStartTimeRef.current > 0 && mode === "work") {
+      // Paused during work - accumulate the time
+      const elapsed = Math.floor((Date.now() - sessionStartTimeRef.current) / 1000);
+      setStudiedTimeThisSession(prev => prev + elapsed);
+      sessionStartTimeRef.current = 0;
+    }
+  }, [isRunning, mode]);
 
   const toggleTimer = () => {
-    if (!isRunning) {
-      startTimeRef.current = Date.now();
-      remainingTimeRef.current = timeLeft;
+    if (!isRunning && settings.notificationsEnabled) {
+      // Request permission when starting (better UX than waiting until completion)
+      requestNotificationPermission();
     }
     setIsRunning(!isRunning);
   };
 
+  // Save partial progress
+  const saveProgress = useCallback(() => {
+    // Calculate current studied time: accumulated + current session progress (from timer)
+    let totalStudied = studiedTimeThisSession;
+    if (isRunning && mode === "work") {
+      // Use timer progress: totalDuration - timeLeft = elapsed time
+      totalStudied += getDuration("work") - timeLeft;
+    }
+    
+    if (totalStudied < 60) {
+      toast.error("Session too short", { description: "Study at least 1 minute to save" });
+      return;
+    }
+    
+    addStudyTime(totalStudied);
+    addSession({
+      date: new Date().toISOString(),
+      duration: totalStudied,
+      tasksCompleted: 0,
+    });
+    
+    const mins = Math.floor(totalStudied / 60);
+    toast.success("Progress saved! 📚", { 
+      description: `Added ${mins} minute${mins !== 1 ? "s" : ""} to your study time` 
+    });
+    
+    // Reset timer and studied time
+    setIsRunning(false);
+    setTimeLeft(getDuration(mode));
+    setStudiedTimeThisSession(0);
+    sessionStartTimeRef.current = 0;
+    targetEndTimeRef.current = 0;
+    localStorage.removeItem(STORAGE_KEY);
+  }, [studiedTimeThisSession, isRunning, mode, timeLeft, addStudyTime, addSession, getDuration]);
+
   const resetTimer = () => {
     setIsRunning(false);
     setTimeLeft(getDuration(mode));
+    setStudiedTimeThisSession(0);
+    sessionStartTimeRef.current = 0;
+    targetEndTimeRef.current = 0;
+    // Clear saved state to reset to defaults
+    localStorage.removeItem(STORAGE_KEY);
   };
 
   const skipToNext = () => {
@@ -360,6 +536,12 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
             {formatTimeShort(timeLeft)}
           </div>
           <Progress value={progress} className="h-2" />
+          {/* Show studied time - calculate from timer progress for running, use accumulated for paused */}
+          {mode === "work" && (studiedTimeThisSession > 0 || (isRunning && timeLeft < totalDuration)) && (
+            <div className="text-sm text-muted-foreground mt-2">
+              Studied: {Math.floor((studiedTimeThisSession + (isRunning ? totalDuration - timeLeft : 0)) / 60)}m
+            </div>
+          )}
         </div>
 
         {/* Controls */}
@@ -382,6 +564,17 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
           <Button variant="outline" size="icon" onClick={skipToNext}>
             <SkipForward className="h-4 w-4" />
           </Button>
+          {/* Save button - only show when there's progress to save in work mode */}
+          {mode === "work" && (studiedTimeThisSession > 0 || timeLeft < getDuration("work")) && (
+            <Button 
+              variant="outline" 
+              size="icon" 
+              onClick={saveProgress}
+              title="Save progress"
+            >
+              <Save className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         {/* Sessions Counter */}

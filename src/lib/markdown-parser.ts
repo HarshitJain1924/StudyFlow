@@ -303,8 +303,16 @@ export function recalculateTotals(sections: TodoSection[]): { totalCompleted: nu
   let totalItems = 0;
   
   sections.forEach(section => {
-    totalCompleted += section.completedCount;
-    totalItems += section.totalCount;
+    // Defensive check: ensure values are valid numbers, default to 0
+    const completed = typeof section.completedCount === 'number' && !isNaN(section.completedCount) 
+      ? section.completedCount 
+      : 0;
+    const total = typeof section.totalCount === 'number' && !isNaN(section.totalCount) 
+      ? section.totalCount 
+      : (section.items?.length || 0);
+    
+    totalCompleted += completed;
+    totalItems += total;
   });
   
   return { totalCompleted, totalItems };

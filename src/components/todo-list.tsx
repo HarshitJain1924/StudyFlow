@@ -29,9 +29,10 @@ interface TodoListProps {
   onUpdate: (checklist: ParsedChecklist) => void;
   compactMode?: boolean;
   minimalUI?: boolean;
+  youtubeUrls?: string[];
 }
 
-export function TodoList({ checklist, onEdit, onUpdate, compactMode = false, minimalUI = false }: TodoListProps) {
+export function TodoList({ checklist, onEdit, onUpdate, compactMode = false, minimalUI = false, youtubeUrls }: TodoListProps) {
   const [sections, setSections] = useState<TodoSectionType[]>(checklist.sections);
   const [filteredSections, setFilteredSections] = useState<TodoSectionType[]>(checklist.sections);
   const [totalCompleted, setTotalCompleted] = useState(checklist.totalCompleted);
@@ -277,6 +278,7 @@ export function TodoList({ checklist, onEdit, onUpdate, compactMode = false, min
         emoji={checklist.emoji}
         completed={totalCompleted}
         total={totalItems}
+        youtubeUrls={youtubeUrls}
       />
       
       <div className="flex gap-2 flex-wrap items-center">
@@ -345,27 +347,25 @@ export function TodoList({ checklist, onEdit, onUpdate, compactMode = false, min
         </Button>
       )}
       
-      <ScrollArea className="max-h-[calc(100vh-520px)]">
-        <div className={cn("space-y-4 pr-4", compactMode && "space-y-2")}>
-          {displaySections.length === 0 ? (
-            <p className="text-center text-muted-foreground py-8">
-              {activeFilter ? "No tasks match your filter." : "No sections to display."}
-            </p>
-          ) : (
-            displaySections.map((section) => (
-              <TodoSection
-                key={section.id}
-                section={section}
-                onToggleItem={handleToggleItem}
-                onToggleAll={handleToggleAll}
-                onEditItem={handleEditItem}
-                onDeleteItem={handleDeleteItem}
-                compact={compactMode}
-              />
-            ))
-          )}
-        </div>
-      </ScrollArea>
+      <div className={cn("space-y-4", compactMode && "space-y-2")}>
+        {displaySections.length === 0 ? (
+          <p className="text-center text-muted-foreground py-8">
+            {activeFilter ? "No tasks match your filter." : "No sections to display."}
+          </p>
+        ) : (
+          displaySections.map((section) => (
+            <TodoSection
+              key={section.id}
+              section={section}
+              onToggleItem={handleToggleItem}
+              onToggleAll={handleToggleAll}
+              onEditItem={handleEditItem}
+              onDeleteItem={handleDeleteItem}
+              compact={compactMode}
+            />
+          ))
+        )}
+      </div>
     </div>
   );
 }

@@ -16,7 +16,18 @@ export async function GET() {
       $or: [{ userId }, { sharedWith: userId }],
     }).sort({ updatedAt: -1 });
 
-    return NextResponse.json(checklists);
+    // Normalize: older DB rows (from before `id` was in schema) won't have `id`.
+    // The client relies on `id` for selection + React list keys.
+    const normalized = checklists.map((c) => {
+      const obj = c.toObject();
+      const stableId = obj.id || c._id?.toString();
+      return {
+        ...obj,
+        id: stableId,
+      };
+    });
+
+    return NextResponse.json(normalized);
   } catch (error) {
     console.error("Error fetching checklists:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -34,8 +45,11 @@ export async function POST(request: Request) {
     const body = await request.json();
     await connectToDatabase();
 
+    const ensuredId = typeof body?.id === "string" && body.id.length > 0 ? body.id : crypto.randomUUID();
+
     const checklist = await Checklist.create({
       ...body,
+      id: ensuredId,
       userId,
     });
 
@@ -61,10 +75,14 @@ export async function PUT(request: Request) {
     await Checklist.deleteMany({ userId });
     
     if (checklists && checklists.length > 0) {
-      const checklistsWithUser = checklists.map((c: Record<string, unknown>) => ({
-        ...c,
-        userId,
-      }));
+      const checklistsWithUser = checklists.map((c: Record<string, unknown>) => {
+        const incomingId = typeof c.id === "string" && c.id.length > 0 ? c.id : crypto.randomUUID();
+        return {
+          ...c,
+          id: incomingId,
+          userId,
+        };
+      });
       await Checklist.insertMany(checklistsWithUser);
     }
 

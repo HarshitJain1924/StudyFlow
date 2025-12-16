@@ -12,6 +12,7 @@ export interface Checklist {
   updatedAt: string;
   type: "markdown" | "quick"; // markdown = parsed from md, quick = created directly
   markdown?: string; // original markdown if type is markdown
+  youtubeUrls?: string[]; // YouTube URLs if created from AI
   sections: TodoSection[];
   totalCompleted: number;
   totalItems: number;
@@ -22,7 +23,7 @@ interface ChecklistStore {
   activeChecklistId: string | null;
   activeChecklist: Checklist | null;
   createChecklist: (title: string, type: "markdown" | "quick", emoji?: string) => Checklist;
-  createFromMarkdown: (markdown: string, parsed: ParsedChecklist) => Checklist;
+  createFromMarkdown: (markdown: string, parsed: ParsedChecklist, youtubeUrls?: string[]) => Checklist;
   updateChecklist: (id: string, updates: Partial<Checklist>) => void;
   deleteChecklist: (id: string) => void;
   setActiveChecklist: (id: string | null) => void;
@@ -43,6 +44,58 @@ function generateId(): string {
   return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }
 
+// Helper to normalize checklist data and fix any NaN/undefined values
+function normalizeChecklist(checklist: Checklist): Checklist {
+  const sections = (checklist.sections || []).map(section => {
+    const items = section.items || [];
+    // Count items recursively
+    const countItems = (items: TodoItem[]): { total: number; completed: number } => {
+      let total = 0;
+      let completed = 0;
+      items.forEach(item => {
+        total++;
+        if (item.completed) completed++;
+        const childCounts = countItems(item.children || []);
+        total += childCounts.total;
+        completed += childCounts.completed;
+      });
+      return { total, completed };
+    };
+    
+    const counts = countItems(items);
+    
+    return {
+      ...section,
+      items,
+      totalCount: typeof section.totalCount === 'number' && !isNaN(section.totalCount) 
+        ? section.totalCount 
+        : counts.total,
+      completedCount: typeof section.completedCount === 'number' && !isNaN(section.completedCount)
+        ? section.completedCount
+        : counts.completed,
+    };
+  });
+  
+  // Recalculate totals
+  let totalItems = 0;
+  let totalCompleted = 0;
+  sections.forEach(s => {
+    totalItems += s.totalCount;
+    totalCompleted += s.completedCount;
+  });
+  
+  return {
+    ...checklist,
+    sections,
+    totalItems: typeof checklist.totalItems === 'number' && !isNaN(checklist.totalItems)
+      ? checklist.totalItems
+      : totalItems,
+    totalCompleted: typeof checklist.totalCompleted === 'number' && !isNaN(checklist.totalCompleted)
+      ? checklist.totalCompleted
+      : totalCompleted,
+  };
+}
+
 export function ChecklistProvider({ children }: { children: ReactNode }) {
   const { user, isSignedIn } = useUser();
   const [checklists, setChecklists] = useState<Checklist[]>([]);
@@ -60,7 +113,11 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     if (savedChecklists) {
       try {
         const parsed = JSON.parse(savedChecklists);
-        setChecklists(parsed);
+        // Normalize all loaded checklists to fix any NaN values
+        const normalized = Array.isArray(parsed) 
+          ? parsed.map(normalizeChecklist) 
+          : [];
+        setChecklists(normalized);
       } catch (e) {
         console.error("Failed to load checklists:", e);
       }
@@ -81,14 +138,41 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetch("/api/checklists");
         if (res.ok) {
-          const cloudChecklists = await res.json();
-          if (cloudChecklists.length > 0) {
-            // Merge: use cloud data as source of truth, but keep local items not in cloud
-            const cloudIds = new Set(cloudChecklists.map((c: Checklist) => c.id));
-            const localOnly = checklists.filter(c => !cloudIds.has(c.id));
-            
-            // Combine and sort by updatedAt
-            const merged = [...cloudChecklists, ...localOnly].sort(
+          const cloudRaw: any[] = await res.json();
+
+          const hasLegacyMissingId = Array.isArray(cloudRaw) && cloudRaw.some((c) => !c?.id);
+          const normalizedCloud: Checklist[] = Array.isArray(cloudRaw)
+            ? cloudRaw.map((c) => {
+                const stableId = (typeof c?.id === "string" && c.id.length > 0)
+                  ? c.id
+                  : (typeof c?._id === "string" && c._id.length > 0)
+                    ? c._id
+                    : generateId();
+                // Normalize to fix any NaN values
+                return normalizeChecklist({ ...c, id: stableId } as Checklist);
+              })
+            : [];
+
+          if (normalizedCloud.length > 0) {
+            // If cloud rows are from an older schema (missing `id`), prefer local and re-sync.
+            // This prevents duplicate lists + fixes sidebar selection / list keys.
+            if (hasLegacyMissingId) {
+              lastSyncedDataRef.current = "";
+              if (checklists.length > 0) {
+                syncToCloud();
+                return;
+              }
+
+              setChecklists(normalizedCloud);
+              // Let debounced sync upload normalized IDs.
+              return;
+            }
+
+            // Normal merge: cloud is source of truth, but keep local items not in cloud
+            const cloudIds = new Set(normalizedCloud.map((c: Checklist) => c.id));
+            const localOnly = checklists.filter((c) => !cloudIds.has(c.id));
+
+            const merged = [...normalizedCloud, ...localOnly].sort(
               (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
             );
             setChecklists(merged);
@@ -138,14 +222,14 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     if (!isLoaded) return;
     localStorage.setItem(CHECKLISTS_KEY, JSON.stringify(checklists));
     
-    // Debounced cloud sync
+    // Debounced cloud sync (reduced to 500ms for faster sync)
     if (isSignedIn) {
       if (syncTimeoutRef.current) {
         clearTimeout(syncTimeoutRef.current);
       }
       syncTimeoutRef.current = setTimeout(() => {
         syncToCloud();
-      }, 2000); // Sync after 2 seconds of inactivity
+      }, 500); // Sync after 500ms of inactivity for faster updates
     }
 
     return () => {
@@ -154,6 +238,32 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
       }
     };
   }, [checklists, isLoaded, isSignedIn, syncToCloud]);
+
+  // Sync immediately when tab becomes visible again (for cross-device sync)
+  useEffect(() => {
+    if (!isSignedIn) return;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === "visible") {
+        // Fetch latest from cloud when tab becomes visible
+        try {
+          const res = await fetch("/api/checklists");
+          if (res.ok) {
+            const cloudChecklists = await res.json();
+            if (cloudChecklists.length > 0) {
+              setChecklists(cloudChecklists);
+              lastSyncedDataRef.current = JSON.stringify(cloudChecklists);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to fetch on visibility:", error);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isSignedIn]);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -191,7 +301,7 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     return newChecklist;
   }, []);
 
-  const createFromMarkdown = useCallback((markdown: string, parsed: ParsedChecklist): Checklist => {
+  const createFromMarkdown = useCallback((markdown: string, parsed: ParsedChecklist, youtubeUrls?: string[]): Checklist => {
     const now = new Date().toISOString();
     const newChecklist: Checklist = {
       id: generateId(),
@@ -201,6 +311,7 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
       updatedAt: now,
       type: "markdown",
       markdown,
+      youtubeUrls,
       sections: parsed.sections,
       totalCompleted: parsed.totalCompleted,
       totalItems: parsed.totalItems,

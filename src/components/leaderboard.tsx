@@ -54,31 +54,39 @@ export function Leaderboard({ open, onOpenChange }: LeaderboardProps) {
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("weekly");
-
-  useEffect(() => {
-    if (open) {
-      fetchLeaderboard();
-    }
-  }, [open, activeTab]);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchLeaderboard = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const res = await fetch(`/api/leaderboard?type=${activeTab}&limit=20`);
       if (res.ok) {
         const leaderboardData = await res.json();
         setData(leaderboardData);
+      } else {
+        setError("Failed to load leaderboard");
       }
     } catch (error) {
       console.error("Failed to fetch leaderboard:", error);
+      setError("Network error. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const formatStudyTime = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
+  useEffect(() => {
+    if (open) {
+      fetchLeaderboard();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeTab]);
+
+  const formatStudyTime = (seconds: number | undefined | null) => {
+    // Defensive: handle undefined/null/NaN
+    const safeSeconds = typeof seconds === 'number' && !isNaN(seconds) ? seconds : 0;
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     }
@@ -134,6 +142,15 @@ export function Leaderboard({ open, onOpenChange }: LeaderboardProps) {
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : error ? (
+              <div className="text-center py-12">
+                <Trophy className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
+                <p className="text-sm text-red-500">{error}</p>
+                <Button variant="outline" size="sm" onClick={fetchLeaderboard} className="mt-4">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry
+                </Button>
               </div>
             ) : data ? (
               <div className="space-y-4">

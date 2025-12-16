@@ -60,11 +60,13 @@ const UserSchema = new Schema<IUser>(
 
 // Checklist Model
 export interface IChecklist extends Document {
+  id: string;
   userId: string;
   title: string;
   emoji?: string;
   type: "markdown" | "quick";
   markdown?: string;
+  youtubeUrls?: string[];
   sections: {
     id: string;
     title: string;
@@ -87,11 +89,13 @@ export interface IChecklist extends Document {
 
 const ChecklistSchema = new Schema<IChecklist>(
   {
+    id: { type: String, required: true, index: true },
     userId: { type: String, required: true, index: true },
     title: { type: String, required: true },
     emoji: String,
     type: { type: String, enum: ["markdown", "quick"], default: "quick" },
     markdown: String,
+    youtubeUrls: [{ type: String }],
     sections: [
       {
         id: String,
