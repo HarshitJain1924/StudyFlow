@@ -10,6 +10,7 @@ export interface TodoItem {
   tags?: string[];
   recurring?: 'daily' | 'weekly' | 'monthly' | null;
   lastCompleted?: string; // ISO date for recurring tasks
+  links?: { label: string; url: string }[]; // optional links
 }
 
 export interface TodoSection {
@@ -65,37 +66,67 @@ function cleanText(text: string): string {
   return text.replace(/\*\*/g, '').replace(/`/g, '');
 }
 
-// Parse time estimates like (~25m), (~1h), (~1h30m), (~90min)
-function parseTimeEstimate(text: string): { cleanText: string; timeEstimate?: number } {
-  const timeRegex = /\(~(\d+)(?:h)?(?:(\d+)?m(?:in)?)?(?:\)|$)|\(~(\d+)\s*min(?:utes?)?\)/i;
-  const match = text.match(timeRegex);
+/**
+ * Parse time estimates from task text.
+ * Supports formats: (25m), (~25m), (40 min), (1h), (1h30m), (1h 30m), (~90min)
+ * Returns cleanText (without time marker) and timeEstimate in minutes.
+ * 
+ * EXPORTED for use in DailyFocusCard to drive Task-Aware Pomodoro.
+ */
+export function parseTimeEstimate(text: string): { cleanText: string; timeEstimate?: number } {
+  // Match patterns:
+  // (25m), (~25m) - simple minutes
+  // (40 min), (40 minutes) - minutes with word
+  // (1h), (~1h) - hours only
+  // (1h30m), (1h 30m), (~1h30m) - hours and minutes
+  const timeRegex = /\(~?(\d+)\s*h(?:\s*(\d+)\s*m(?:in(?:utes?)?)?)?\)|(\(~?(\d+)\s*m(?:in(?:utes?)?)?\))/gi;
   
-  if (match) {
-    let minutes = 0;
-    if (match[3]) {
-      // Format: (~90min) or (~90 minutes)
-      minutes = parseInt(match[3], 10);
-    } else if (match[1]) {
-      const firstNum = parseInt(match[1], 10);
-      if (text.includes('h')) {
-        // Format: (~1h) or (~1h30m)
-        minutes = firstNum * 60;
-        if (match[2]) {
-          minutes += parseInt(match[2], 10);
-        }
-      } else {
-        // Format: (~25m)
-        minutes = firstNum;
-      }
+  let match = timeRegex.exec(text);
+  if (!match) {
+    // Try simpler pattern for (25m) or (~25m)
+    const simpleRegex = /\(~?(\d+)\s*m(?:in(?:utes?)?)?\)/i;
+    const simpleMatch = text.match(simpleRegex);
+    if (simpleMatch) {
+      const minutes = parseInt(simpleMatch[1], 10);
+      return {
+        cleanText: text.replace(simpleMatch[0], '').trim(),
+        timeEstimate: minutes > 0 ? minutes : undefined,
+      };
     }
     
-    return {
-      cleanText: text.replace(timeRegex, '').trim(),
-      timeEstimate: minutes > 0 ? minutes : undefined,
-    };
+    // Try hours pattern (1h) or (1h 30m)
+    const hourRegex = /\(~?(\d+)\s*h(?:\s*(\d+)\s*m(?:in)?)?\)/i;
+    const hourMatch = text.match(hourRegex);
+    if (hourMatch) {
+      let minutes = parseInt(hourMatch[1], 10) * 60;
+      if (hourMatch[2]) {
+        minutes += parseInt(hourMatch[2], 10);
+      }
+      return {
+        cleanText: text.replace(hourMatch[0], '').trim(),
+        timeEstimate: minutes > 0 ? minutes : undefined,
+      };
+    }
+    
+    return { cleanText: text };
   }
   
-  return { cleanText: text };
+  let minutes = 0;
+  if (match[1]) {
+    // Hours format: (1h) or (1h30m)
+    minutes = parseInt(match[1], 10) * 60;
+    if (match[2]) {
+      minutes += parseInt(match[2], 10);
+    }
+  } else if (match[4]) {
+    // Minutes only: (25m)
+    minutes = parseInt(match[4], 10);
+  }
+  
+  return {
+    cleanText: text.replace(match[0], '').trim(),
+    timeEstimate: minutes > 0 ? minutes : undefined,
+  };
 }
 
 // Parse priority markers like !!! (high), !! (medium), ! (low)
@@ -119,6 +150,57 @@ function parsePriority(text: string): { cleanText: string; priority?: 'low' | 'm
     };
   }
   return { cleanText: text };
+}
+
+// Parse inline URLs and markdown links from text
+function parseLinks(text: string): { cleanText: string; links: { label: string; url: string }[] } {
+  const links: { label: string; url: string }[] = [];
+  let cleanText = text;
+  
+  // Match markdown links: [label](url)
+  const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let match;
+  while ((match = markdownLinkRegex.exec(text)) !== null) {
+    links.push({ label: match[1], url: match[2] });
+  }
+  cleanText = cleanText.replace(markdownLinkRegex, '').trim();
+  
+  // Match standalone URLs (http/https)
+  const urlRegex = /(?:^|\s)(https?:\/\/[^\s]+)/g;
+  while ((match = urlRegex.exec(text)) !== null) {
+    const url = match[1];
+    // Don't add if already captured as markdown link
+    if (!links.some(l => l.url === url)) {
+      // Extract domain as label
+      try {
+        const domain = new URL(url).hostname.replace('www.', '');
+        links.push({ label: domain, url });
+      } catch {
+        links.push({ label: 'Link', url });
+      }
+    }
+  }
+  cleanText = cleanText.replace(/(?:^|\s)https?:\/\/[^\s]+/g, '').trim();
+  
+  return { cleanText, links: links.length > 0 ? links : [] };
+}
+
+// Check if a line is a link sub-bullet: - link: https://...
+function parseLinkSubBullet(line: string): { url: string; label: string } | null {
+  const match = line.match(/^\s*-\s*link:\s*(https?:\/\/[^\s]+)(?:\s+(.+))?$/i);
+  if (match) {
+    const url = match[1];
+    let label = match[2]?.trim();
+    if (!label) {
+      try {
+        label = new URL(url).hostname.replace('www.', '');
+      } catch {
+        label = 'Link';
+      }
+    }
+    return { url, label };
+  }
+  return null;
 }
 
 export function parseMarkdownChecklist(markdown: string): ParsedChecklist {
@@ -170,9 +252,10 @@ export function parseMarkdownChecklist(markdown: string): ParsedChecklist {
     // Parse checkbox items
     const checkboxData = parseCheckboxLine(line);
     if (checkboxData && currentSection) {
-      // Parse time estimate and priority from text
+      // Parse time estimate, priority, and links from text
       const { cleanText: textWithoutTime, timeEstimate } = parseTimeEstimate(checkboxData.text);
-      const { cleanText: finalText, priority } = parsePriority(textWithoutTime);
+      const { cleanText: textWithoutPriority, priority } = parsePriority(textWithoutTime);
+      const { cleanText: finalText, links } = parseLinks(textWithoutPriority);
       
       const item: TodoItem = {
         id: generateId(),
@@ -182,6 +265,7 @@ export function parseMarkdownChecklist(markdown: string): ParsedChecklist {
         children: [],
         timeEstimate,
         priority,
+        links: links.length > 0 ? links : undefined,
       };
       
       currentSection.totalCount++;

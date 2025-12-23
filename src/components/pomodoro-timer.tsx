@@ -7,7 +7,9 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { useStudy } from "@/lib/study-context";
 import { useTimer } from "@/lib/timer-context";
+import { useChecklists } from "@/lib/checklist-store";
 import { formatTimeShort } from "@/lib/study-types";
+import { parseTimeEstimate } from "@/lib/markdown-parser";
 import {
   Play,
   Pause,
@@ -31,6 +33,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
+import { TaskCompleteDialog } from "@/components/task-complete-dialog";
+import { NextTaskDialog } from "@/components/next-task-dialog";
 
 type TimerMode = "work" | "shortBreak" | "longBreak";
 
@@ -50,14 +54,30 @@ interface PomodoroTimerProps {
 
 export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
   const { settings, updateSettings, addStudyTime, addSession } = useStudy();
-  const { setPomodoroRunning, updatePomodoroTime, setPomodoroMode } = useTimer();
+  const { timerState, setPomodoroRunning, updatePomodoroTime, setPomodoroMode, unlockTask, clearPendingStart, startPomodoro, completeActiveTask, lockTask } = useTimer();
+  const { checklists } = useChecklists();
   const [mode, setMode] = useState<TimerMode>("work");
   const [timeLeft, setTimeLeft] = useState(settings.pomodoro.workDuration * 60);
   const [isRunning, setIsRunning] = useState(false);
   const [sessionsCompleted, setSessionsCompleted] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [studiedTimeThisSession, setStudiedTimeThisSession] = useState(0); // Track time studied in current session
+  const [studiedTimeThisSession, setStudiedTimeThisSession] = useState(0);
+  const [showTaskCompleteDialog, setShowTaskCompleteDialog] = useState(false); // Task-Aware Pomodoro
+  
+  // Next Task Suggestion
+  const [showNextTaskDialog, setShowNextTaskDialog] = useState(false);
+  const [nextTaskSuggestion, setNextTaskSuggestion] = useState<{ 
+    text: string; 
+    id: string; 
+    sectionId: string; 
+    estimate?: number;
+    checklistId: string;
+    goalId: string;
+    goalTitle: string;
+    goalEmoji?: string;
+  } | null>(null);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   
   // Timestamp-based timer - stores when timer should end
@@ -172,6 +192,34 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
     setPomodoroMode(mode);
   }, [mode, setPomodoroMode]);
 
+  // CONSUME PENDING START COMMAND - This is the imperative bridge
+  // When pendingStart is set (from DailyFocusCard, Need more time, etc),
+  // this effect actually starts the timer engine.
+  const lastProcessedTimestampRef = useRef<number>(0);
+  useEffect(() => {
+    const pending = timerState.pendingStart;
+    if (!pending) return;
+    
+    // Prevent processing the same command twice
+    if (pending.timestamp <= lastProcessedTimestampRef.current) return;
+    lastProcessedTimestampRef.current = pending.timestamp;
+    
+    // Set mode to work and duration based on command
+    setMode("work");
+    setTimeLeft(pending.durationSeconds);
+    setIsRunning(true);
+    setStudiedTimeThisSession(0);
+    sessionStartTimeRef.current = Date.now();
+    
+    // Request notification permission
+    if (settings.notificationsEnabled) {
+      requestNotificationPermission();
+    }
+    
+    // Clear the command so it doesn't re-trigger
+    clearPendingStart();
+  }, [timerState.pendingStart, clearPendingStart, settings.notificationsEnabled, requestNotificationPermission]);
+
   const getDuration = useCallback(
     (timerMode: TimerMode) => {
       switch (timerMode) {
@@ -217,17 +265,22 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
       const newSessionsCompleted = sessionsCompleted + 1;
       setSessionsCompleted(newSessionsCompleted);
 
-      // Toast notification
-      toast.success("Focus session complete! ☕", {
-        description: `Great work! ${settings.pomodoro.workDuration}min added. Take a break!`,
-      });
-
-      if (newSessionsCompleted % settings.pomodoro.sessionsUntilLongBreak === 0) {
-        setMode("longBreak");
-        setTimeLeft(settings.pomodoro.longBreakDuration * 60);
+      // Check if there's an active task - show task complete dialog instead of toast
+      if (timerState.activeTask) {
+        setShowTaskCompleteDialog(true);
       } else {
-        setMode("shortBreak");
-        setTimeLeft(settings.pomodoro.shortBreakDuration * 60);
+        // Normal Pomodoro flow (no active task)
+        toast.success("Focus session complete! ☕", {
+          description: `Great work! ${settings.pomodoro.workDuration}min added. Take a break!`,
+        });
+
+        if (newSessionsCompleted % settings.pomodoro.sessionsUntilLongBreak === 0) {
+          setMode("longBreak");
+          setTimeLeft(settings.pomodoro.longBreakDuration * 60);
+        } else {
+          setMode("shortBreak");
+          setTimeLeft(settings.pomodoro.shortBreakDuration * 60);
+        }
       }
     } else {
       toast.info("Break's over! 🎯", {
@@ -248,7 +301,7 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
           : "Break's over. Let's get back to studying!"
       );
     }
-  }, [mode, sessionsCompleted, settings, addStudyTime, addSession, playSound, showNotification]);
+  }, [mode, sessionsCompleted, settings, addStudyTime, addSession, playSound, showNotification, timerState.activeTask]);
 
   // Store handleTimerComplete in ref so timer effect can access latest version
   handleTimerCompleteRef.current = handleTimerComplete;
@@ -382,9 +435,148 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
     }
   };
 
+  // Task-Aware Pomodoro: Handler for "Completed" button
+  const handleTaskCompleted = useCallback(() => {
+    // Ensure timer stops immediately when task is marked complete (especially if done early via banner)
+    setIsRunning(false);
+
+    const active = timerState.activeTask;
+    setShowTaskCompleteDialog(false);
+    
+    // 1. Mark active task as complete
+    completeActiveTask();
+    
+    // 2. Find next task (if possible)
+    if (active && active.checklistId && active.taskId) {
+      const checklist = checklists.find(c => c.id === active.checklistId);
+      if (checklist) {
+        let foundCurrent = false;
+        let nextTaskFound: { text: string; id: string; sectionId: string; estimate?: number } | null = null;
+        
+        // Iteration to find next uncompleted task
+        // We use a simple loop because we need to break after finding the next one
+        outerLoop:
+        for (const section of checklist.sections) {
+          for (const item of section.items) {
+            // Check current level
+            if (foundCurrent && !item.completed) {
+              const estimate = item.timeEstimate;
+              nextTaskFound = { text: item.text, id: item.id, sectionId: section.id, estimate };
+              break outerLoop;
+            }
+            if (item.id === active.taskId) foundCurrent = true;
+            
+            // Check children
+            if (item.children) {
+              for (const child of item.children) {
+                if (foundCurrent && !child.completed) {
+                  const estimate = child.timeEstimate;
+                  nextTaskFound = { text: child.text, id: child.id, sectionId: section.id, estimate };
+                  break outerLoop;
+                }
+                if (child.id === active.taskId) foundCurrent = true;
+              }
+            }
+          }
+        }
+
+        if (nextTaskFound) {
+          setNextTaskSuggestion({
+            ...nextTaskFound,
+            checklistId: active.checklistId,
+            goalId: active.goalId,
+            goalTitle: active.goalTitle,
+            goalEmoji: active.goalEmoji,
+          });
+          setShowNextTaskDialog(true);
+          return; // Don't go to break yet, wait for user decision
+        }
+      }
+    }
+
+    // No next task found -> Standard completion flow
+    toast.success("Task completed! 🎉", {
+      description: "Great work! Take a break.",
+    });
+    // Return to break mode
+    if (sessionsCompleted % settings.pomodoro.sessionsUntilLongBreak === 0) {
+      setMode("longBreak");
+      setTimeLeft(settings.pomodoro.longBreakDuration * 60);
+    } else {
+      setMode("shortBreak");
+      setTimeLeft(settings.pomodoro.shortBreakDuration * 60);
+    }
+  }, [timerState.activeTask, completeActiveTask, checklists, sessionsCompleted, settings.pomodoro]);
+
+  // Handler for starting the suggested next task
+  const handleStartNextTask = useCallback(() => {
+    if (!nextTaskSuggestion) return;
+    
+    lockTask({
+      goalId: nextTaskSuggestion.goalId,
+      goalTitle: nextTaskSuggestion.goalTitle,
+      goalEmoji: nextTaskSuggestion.goalEmoji,
+      taskText: nextTaskSuggestion.text,
+      checklistId: nextTaskSuggestion.checklistId,
+      taskId: nextTaskSuggestion.id,
+      sectionId: nextTaskSuggestion.sectionId,
+      plannedMinutes: nextTaskSuggestion.estimate,
+    });
+
+    // Auto-start timer
+    const duration = nextTaskSuggestion.estimate || settings.pomodoro.workDuration;
+    startPomodoro(duration, "task");
+    
+    setShowNextTaskDialog(false);
+  }, [nextTaskSuggestion, lockTask, startPomodoro, settings.pomodoro.workDuration]);
+
+  // Task-Aware Pomodoro: Handler for "Need more time" button
+  const handleNeedMoreTime = useCallback((additionalMinutes: number) => {
+    setShowTaskCompleteDialog(false);
+    setTimeLeft(additionalMinutes * 60);
+    setIsRunning(true);
+    toast.info(`Added ${additionalMinutes} more minutes`, {
+      description: "Keep going! You've got this.",
+    });
+  }, []);
+
+  // Task-Aware Pomodoro: Handler for "Skip" button
+  const handleTaskSkip = useCallback(() => {
+    setShowTaskCompleteDialog(false);
+    unlockTask();
+    toast.info("Task skipped", {
+      description: "No worries — you can come back to it later.",
+    });
+    // Return to break mode
+    setMode("shortBreak");
+    setTimeLeft(settings.pomodoro.shortBreakDuration * 60);
+  }, [unlockTask, settings.pomodoro.shortBreakDuration]);
+
   return (
     <Card className="overflow-hidden">
       {!minimalUI && <div className={cn("h-1", getModeColor())} />}
+      
+      {/* Active Task Banner - shows what you're working on */}
+      {timerState.activeTask && (
+        <div className="bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800 px-4 py-2">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{timerState.activeTask.goalEmoji || "🎯"}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Working on</p>
+              <p className="text-sm font-medium truncate">{timerState.activeTask.taskText}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleTaskCompleted}
+              className="text-amber-600 hover:text-amber-700 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/50 h-7 px-2"
+            >
+              Done
+            </Button>
+          </div>
+        </div>
+      )}
+      
       <CardContent className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -582,6 +774,39 @@ export function PomodoroTimer({ minimalUI = false }: PomodoroTimerProps) {
           Sessions completed: {sessionsCompleted}
         </div>
       </CardContent>
+
+      {/* Task-Aware Pomodoro: Post-timer dialog */}
+      <TaskCompleteDialog
+        open={showTaskCompleteDialog}
+        taskText={timerState.activeTask?.taskText || ""}
+        goalEmoji={timerState.activeTask?.goalEmoji}
+        plannedMinutes={timerState.activeTask?.plannedMinutes}
+        defaultDuration={settings.pomodoro.workDuration}
+        onCompleted={handleTaskCompleted}
+        onNeedMoreTime={handleNeedMoreTime}
+        onSkip={handleTaskSkip}
+      />
+      
+      {/* Next Task Suggestion Dialog */}
+      <NextTaskDialog 
+        open={showNextTaskDialog}
+        nextTaskText={nextTaskSuggestion?.text || ""}
+        nextGoalEmoji={timerState.activeTask?.goalEmoji || "🎯"} 
+        nextGoalTitle={timerState.activeTask?.goalTitle || "Next Task"}
+        nextTaskMinutes={nextTaskSuggestion?.estimate}
+        onStartNext={handleStartNextTask}
+        onDismiss={() => {
+          setShowNextTaskDialog(false);
+           // Return to break mode only when dismissed
+           if (sessionsCompleted % settings.pomodoro.sessionsUntilLongBreak === 0) {
+            setMode("longBreak");
+            setTimeLeft(settings.pomodoro.longBreakDuration * 60);
+          } else {
+            setMode("shortBreak");
+            setTimeLeft(settings.pomodoro.shortBreakDuration * 60);
+          }
+        }}
+      />
     </Card>
   );
 }

@@ -10,7 +10,9 @@ import { StudyNotes } from "@/components/study-notes";
 import { SettingsPanel } from "@/components/settings-panel";
 import { DailyQuote } from "@/components/daily-quote";
 import { FocusSounds } from "@/components/focus-sounds";
-import { GoalsPage } from "@/components/goals-page";
+import { GoalsPage, Goal } from "@/components/goals-page";
+import { DailyFocusCard, DailyFocusEmptyState } from "@/components/daily-focus-card";
+import { computeDailyFocus } from "@/lib/daily-focus";
 import { KeyboardShortcutsDialog } from "@/components/keyboard-shortcuts-dialog";
 import { ChecklistSidebar } from "@/components/checklist-sidebar";
 import { QuickTaskAdder } from "@/components/quick-task-adder";
@@ -100,6 +102,7 @@ function HomeContent() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showYouTubeAI, setShowYouTubeAI] = useState(false);
   const [minimalUI, setMinimalUI] = useState(false);
+  const [goals, setGoals] = useState<Goal[]>([]);
   
   const { settings: viewSettings, toggleCompactMode } = useViewSettings();
   const { isPlaying: isMusicPlaying } = useMusic();
@@ -136,6 +139,35 @@ function HomeContent() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Load goals from localStorage to compute daily focus
+  useEffect(() => {
+    const loadGoals = () => {
+      const saved = localStorage.getItem("study-goals");
+      if (saved) {
+        try {
+          setGoals(JSON.parse(saved));
+        } catch {
+          // Invalid JSON
+        }
+      }
+    };
+    loadGoals();
+    // Listen for storage changes (when goals are updated in GoalsPage)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "study-goals") loadGoals();
+    };
+    window.addEventListener("storage", handleStorage);
+    // Also reload when tab becomes visible (for same-tab updates)
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") loadGoals();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, []);
 
@@ -556,63 +588,97 @@ function HomeContent() {
                 />
               </div>
             ) : (
-              <div className="text-center py-12 pt-16">
-                <div className="inline-flex p-4 rounded-full bg-muted mb-4">
-                  <Sparkles className="h-8 w-8 text-muted-foreground" />
-                </div>
-                <h2 className="text-xl font-semibold mb-2">Welcome to StudyFlow</h2>
-                <p className="text-muted-foreground mb-8 max-w-md mx-auto">
-                  Create a quick checklist or import from markdown to start tracking your progress
-                </p>
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-2">
-                  <Button
-                    onClick={() => createChecklist("My Tasks", "quick", "📋")}
-                    size="lg"
-                    className="w-full sm:w-auto"
-                  >
-                    <List className="h-4 w-4 mr-2" />
-                    Create Quick List
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowMarkdownInput(true)}
-                    size="lg"
-                    className="w-full sm:w-auto"
-                  >
-                    <FileText className="h-4 w-4 mr-2" />
-                    Import Markdown
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowYouTubeAI(true)}
-                    size="lg"
-                    className="w-full sm:w-auto bg-linear-to-r from-purple-500/10 to-pink-500/10 border-purple-500/30 hover:border-purple-500/50"
-                  >
-                    <Wand2 className="h-4 w-4 mr-2 text-purple-500" />
-                    AI from YouTube
-                  </Button>
-                </div>
+              <div className="space-y-6 py-8">
+                {/* Daily Focus Card */}
+                {(() => {
+                  const dailyFocus = computeDailyFocus(goals, checklists);
+                  if (dailyFocus) {
+                    return (
+                      <div className="max-w-md mx-auto">
+                        <DailyFocusCard
+                          focus={dailyFocus}
+                          onStartNow={(plannedMinutes) => {
+                            // plannedMinutes can be used to auto-set Pomodoro duration
+                            console.log("Starting task with planned minutes:", plannedMinutes);
+                            if (dailyFocus.checklist) {
+                              setActiveChecklist(dailyFocus.checklist.id);
+                            } else {
+                              setShowGoalsPage(true);
+                            }
+                          }}
+                          onViewPlan={() => {
+                            if (dailyFocus.checklist) {
+                              setActiveChecklist(dailyFocus.checklist.id);
+                            } else {
+                              setShowGoalsPage(true);
+                            }
+                          }}
+                        />
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
 
-                {/* Quick Start Templates */}
-                <div className="mt-8 pt-8 border-t">
-                  <p className="text-sm text-muted-foreground mb-4">Or start with a template:</p>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {[
-                      { emoji: "📚", title: "Study Plan" },
-                      { emoji: "🏠", title: "Home Tasks" },
-                      { emoji: "💼", title: "Work Projects" },
-                      { emoji: "🛒", title: "Shopping List" },
-                      { emoji: "🎯", title: "Goals" },
-                    ].map((template) => (
-                      <Button
-                        key={template.title}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => createChecklist(template.title, "quick", template.emoji)}
-                      >
-                        {template.emoji} {template.title}
-                      </Button>
-                    ))}
+                {/* Welcome Section */}
+                <div className="text-center">
+                  <div className="inline-flex p-4 rounded-full bg-muted mb-4">
+                    <Sparkles className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h2 className="text-xl font-semibold mb-2">Welcome to StudyFlow</h2>
+                  <p className="text-muted-foreground mb-8 max-w-md mx-auto">
+                    Create a quick checklist or import from markdown to start tracking your progress
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-2">
+                    <Button
+                      onClick={() => createChecklist("My Tasks", "quick", "📋")}
+                      size="lg"
+                      className="w-full sm:w-auto"
+                    >
+                      <List className="h-4 w-4 mr-2" />
+                      Create Quick List
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowMarkdownInput(true)}
+                      size="lg"
+                      className="w-full sm:w-auto"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      Import Markdown
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowYouTubeAI(true)}
+                      size="lg"
+                      className="w-full sm:w-auto bg-linear-to-r from-purple-500/10 to-pink-500/10 border-purple-500/30 hover:border-purple-500/50"
+                    >
+                      <Wand2 className="h-4 w-4 mr-2 text-purple-500" />
+                      AI from YouTube
+                    </Button>
+                  </div>
+
+                  {/* Quick Start Templates */}
+                  <div className="mt-8 pt-8 border-t">
+                    <p className="text-sm text-muted-foreground mb-4">Or start with a template:</p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {[
+                        { emoji: "📚", title: "Study Plan" },
+                        { emoji: "🏠", title: "Home Tasks" },
+                        { emoji: "💼", title: "Work Projects" },
+                        { emoji: "🛒", title: "Shopping List" },
+                        { emoji: "🎯", title: "Goals" },
+                      ].map((template) => (
+                        <Button
+                          key={template.title}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => createChecklist(template.title, "quick", template.emoji)}
+                        >
+                          {template.emoji} {template.title}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>

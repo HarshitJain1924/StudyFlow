@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+  useRef,
+} from "react";
 import { useUser } from "@clerk/nextjs";
 import { ParsedChecklist, TodoSection, TodoItem } from "./markdown-parser";
 
@@ -22,13 +30,33 @@ interface ChecklistStore {
   checklists: Checklist[];
   activeChecklistId: string | null;
   activeChecklist: Checklist | null;
-  createChecklist: (title: string, type: "markdown" | "quick", emoji?: string) => Checklist;
-  createFromMarkdown: (markdown: string, parsed: ParsedChecklist, youtubeUrls?: string[]) => Checklist;
+  createChecklist: (
+    title: string,
+    type: "markdown" | "quick",
+    emoji?: string
+  ) => Checklist;
+  createChecklistWithSections: (
+    checklist: Omit<Checklist, "createdAt" | "updatedAt">
+  ) => Checklist;
+  createFromMarkdown: (
+    markdown: string,
+    parsed: ParsedChecklist,
+    youtubeUrls?: string[]
+  ) => Checklist;
   updateChecklist: (id: string, updates: Partial<Checklist>) => void;
   deleteChecklist: (id: string) => void;
   setActiveChecklist: (id: string | null) => void;
-  addTaskToChecklist: (checklistId: string, sectionId: string, task: Omit<TodoItem, "id" | "children">) => void;
-  addSectionToChecklist: (checklistId: string, title: string, emoji?: string) => void;
+  addTaskToChecklist: (
+    checklistId: string,
+    sectionId: string,
+    task: Omit<TodoItem, "id" | "children">
+  ) => void;
+  toggleTask: (checklistId: string, taskId: string, completed: boolean) => void;
+  addSectionToChecklist: (
+    checklistId: string,
+    title: string,
+    emoji?: string
+  ) => void;
   duplicateChecklist: (id: string) => Checklist;
   syncToCloud: () => Promise<void>;
   isSyncing: boolean;
@@ -46,13 +74,15 @@ function generateId(): string {
 
 // Helper to normalize checklist data and fix any NaN/undefined values
 function normalizeChecklist(checklist: Checklist): Checklist {
-  const sections = (checklist.sections || []).map(section => {
+  const sections = (checklist.sections || []).map((section) => {
     const items = section.items || [];
     // Count items recursively
-    const countItems = (items: TodoItem[]): { total: number; completed: number } => {
+    const countItems = (
+      items: TodoItem[]
+    ): { total: number; completed: number } => {
       let total = 0;
       let completed = 0;
-      items.forEach(item => {
+      items.forEach((item) => {
         total++;
         if (item.completed) completed++;
         const childCounts = countItems(item.children || []);
@@ -61,45 +91,53 @@ function normalizeChecklist(checklist: Checklist): Checklist {
       });
       return { total, completed };
     };
-    
+
     const counts = countItems(items);
-    
+
     return {
       ...section,
       items,
-      totalCount: typeof section.totalCount === 'number' && !isNaN(section.totalCount) 
-        ? section.totalCount 
-        : counts.total,
-      completedCount: typeof section.completedCount === 'number' && !isNaN(section.completedCount)
-        ? section.completedCount
-        : counts.completed,
+      totalCount:
+        typeof section.totalCount === "number" && !isNaN(section.totalCount)
+          ? section.totalCount
+          : counts.total,
+      completedCount:
+        typeof section.completedCount === "number" &&
+        !isNaN(section.completedCount)
+          ? section.completedCount
+          : counts.completed,
     };
   });
-  
+
   // Recalculate totals
   let totalItems = 0;
   let totalCompleted = 0;
-  sections.forEach(s => {
+  sections.forEach((s) => {
     totalItems += s.totalCount;
     totalCompleted += s.completedCount;
   });
-  
+
   return {
     ...checklist,
     sections,
-    totalItems: typeof checklist.totalItems === 'number' && !isNaN(checklist.totalItems)
-      ? checklist.totalItems
-      : totalItems,
-    totalCompleted: typeof checklist.totalCompleted === 'number' && !isNaN(checklist.totalCompleted)
-      ? checklist.totalCompleted
-      : totalCompleted,
+    totalItems:
+      typeof checklist.totalItems === "number" && !isNaN(checklist.totalItems)
+        ? checklist.totalItems
+        : totalItems,
+    totalCompleted:
+      typeof checklist.totalCompleted === "number" &&
+      !isNaN(checklist.totalCompleted)
+        ? checklist.totalCompleted
+        : totalCompleted,
   };
 }
 
 export function ChecklistProvider({ children }: { children: ReactNode }) {
   const { user, isSignedIn } = useUser();
   const [checklists, setChecklists] = useState<Checklist[]>([]);
-  const [activeChecklistId, setActiveChecklistId] = useState<string | null>(null);
+  const [activeChecklistId, setActiveChecklistId] = useState<string | null>(
+    null
+  );
   const [isLoaded, setIsLoaded] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -114,8 +152,8 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
       try {
         const parsed = JSON.parse(savedChecklists);
         // Normalize all loaded checklists to fix any NaN values
-        const normalized = Array.isArray(parsed) 
-          ? parsed.map(normalizeChecklist) 
+        const normalized = Array.isArray(parsed)
+          ? parsed.map(normalizeChecklist)
           : [];
         setChecklists(normalized);
       } catch (e) {
@@ -140,12 +178,14 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
         if (res.ok) {
           const cloudRaw: any[] = await res.json();
 
-          const hasLegacyMissingId = Array.isArray(cloudRaw) && cloudRaw.some((c) => !c?.id);
+          const hasLegacyMissingId =
+            Array.isArray(cloudRaw) && cloudRaw.some((c) => !c?.id);
           const normalizedCloud: Checklist[] = Array.isArray(cloudRaw)
             ? cloudRaw.map((c) => {
-                const stableId = (typeof c?.id === "string" && c.id.length > 0)
-                  ? c.id
-                  : (typeof c?._id === "string" && c._id.length > 0)
+                const stableId =
+                  typeof c?.id === "string" && c.id.length > 0
+                    ? c.id
+                    : typeof c?._id === "string" && c._id.length > 0
                     ? c._id
                     : generateId();
                 // Normalize to fix any NaN values
@@ -169,11 +209,15 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
             }
 
             // Normal merge: cloud is source of truth, but keep local items not in cloud
-            const cloudIds = new Set(normalizedCloud.map((c: Checklist) => c.id));
+            const cloudIds = new Set(
+              normalizedCloud.map((c: Checklist) => c.id)
+            );
             const localOnly = checklists.filter((c) => !cloudIds.has(c.id));
 
             const merged = [...normalizedCloud, ...localOnly].sort(
-              (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+              (a, b) =>
+                new Date(b.updatedAt).getTime() -
+                new Date(a.updatedAt).getTime()
             );
             setChecklists(merged);
             lastSyncedDataRef.current = JSON.stringify(merged);
@@ -188,13 +232,13 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     };
 
     fetchFromCloud();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, isSignedIn, user]);
 
   // Sync to cloud function
   const syncToCloud = useCallback(async () => {
     if (!isSignedIn || isSyncing) return;
-    
+
     const currentData = JSON.stringify(checklists);
     if (currentData === lastSyncedDataRef.current) return;
 
@@ -205,7 +249,7 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ checklists }),
       });
-      
+
       if (res.ok) {
         lastSyncedDataRef.current = currentData;
         localStorage.setItem(LAST_SYNC_KEY, new Date().toISOString());
@@ -221,7 +265,7 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLoaded) return;
     localStorage.setItem(CHECKLISTS_KEY, JSON.stringify(checklists));
-    
+
     // Debounced cloud sync (reduced to 500ms for faster sync)
     if (isSignedIn) {
       if (syncTimeoutRef.current) {
@@ -262,7 +306,8 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [isSignedIn]);
 
   useEffect(() => {
@@ -274,168 +319,288 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
     }
   }, [activeChecklistId, isLoaded]);
 
-  const activeChecklist = checklists.find((c) => c.id === activeChecklistId) || null;
+  const activeChecklist =
+    checklists.find((c) => c.id === activeChecklistId) || null;
 
-  const createChecklist = useCallback((title: string, type: "markdown" | "quick", emoji?: string): Checklist => {
-    const now = new Date().toISOString();
-    const newChecklist: Checklist = {
-      id: generateId(),
-      title,
-      emoji,
-      createdAt: now,
-      updatedAt: now,
-      type,
-      sections: type === "quick" ? [{
+  const createChecklist = useCallback(
+    (title: string, type: "markdown" | "quick", emoji?: string): Checklist => {
+      const now = new Date().toISOString();
+      const newChecklist: Checklist = {
         id: generateId(),
-        title: "Tasks",
-        items: [],
-        completedCount: 0,
-        totalCount: 0,
-      }] : [],
-      totalCompleted: 0,
-      totalItems: 0,
-    };
+        title,
+        emoji,
+        createdAt: now,
+        updatedAt: now,
+        type,
+        sections:
+          type === "quick"
+            ? [
+                {
+                  id: generateId(),
+                  title: "Tasks",
+                  items: [],
+                  completedCount: 0,
+                  totalCount: 0,
+                },
+              ]
+            : [],
+        totalCompleted: 0,
+        totalItems: 0,
+      };
 
-    setChecklists((prev) => [newChecklist, ...prev]);
-    setActiveChecklistId(newChecklist.id);
-    return newChecklist;
-  }, []);
+      setChecklists((prev) => [newChecklist, ...prev]);
+      setActiveChecklistId(newChecklist.id);
+      return newChecklist;
+    },
+    []
+  );
 
-  const createFromMarkdown = useCallback((markdown: string, parsed: ParsedChecklist, youtubeUrls?: string[]): Checklist => {
-    const now = new Date().toISOString();
-    const newChecklist: Checklist = {
-      id: generateId(),
-      title: parsed.title,
-      emoji: parsed.emoji,
-      createdAt: now,
-      updatedAt: now,
-      type: "markdown",
-      markdown,
-      youtubeUrls,
-      sections: parsed.sections,
-      totalCompleted: parsed.totalCompleted,
-      totalItems: parsed.totalItems,
-    };
+  // Create checklist with custom sections (for auto-creating from goals)
+  const createChecklistWithSections = useCallback(
+    (input: Omit<Checklist, "createdAt" | "updatedAt">): Checklist => {
+      const now = new Date().toISOString();
+      const newChecklist: Checklist = normalizeChecklist({
+        ...input,
+        createdAt: now,
+        updatedAt: now,
+      });
 
-    setChecklists((prev) => [newChecklist, ...prev]);
-    setActiveChecklistId(newChecklist.id);
-    return newChecklist;
-  }, []);
+      setChecklists((prev) => [newChecklist, ...prev]);
+      // Don't auto-activate for bulk imports
+      return newChecklist;
+    },
+    []
+  );
 
-  const updateChecklist = useCallback((id: string, updates: Partial<Checklist>) => {
-    setChecklists((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, ...updates, updatedAt: new Date().toISOString() }
-          : c
-      )
-    );
-  }, []);
+  const createFromMarkdown = useCallback(
+    (
+      markdown: string,
+      parsed: ParsedChecklist,
+      youtubeUrls?: string[]
+    ): Checklist => {
+      const now = new Date().toISOString();
+      const newChecklist: Checklist = {
+        id: generateId(),
+        title: parsed.title,
+        emoji: parsed.emoji,
+        createdAt: now,
+        updatedAt: now,
+        type: "markdown",
+        markdown,
+        youtubeUrls,
+        sections: parsed.sections,
+        totalCompleted: parsed.totalCompleted,
+        totalItems: parsed.totalItems,
+      };
 
-  const deleteChecklist = useCallback((id: string) => {
-    setChecklists((prev) => prev.filter((c) => c.id !== id));
-    if (activeChecklistId === id) {
-      setActiveChecklistId(null);
-    }
-  }, [activeChecklistId]);
+      setChecklists((prev) => [newChecklist, ...prev]);
+      setActiveChecklistId(newChecklist.id);
+      return newChecklist;
+    },
+    []
+  );
+
+  const updateChecklist = useCallback(
+    (id: string, updates: Partial<Checklist>) => {
+      setChecklists((prev) =>
+        prev.map((c) =>
+          c.id === id
+            ? { ...c, ...updates, updatedAt: new Date().toISOString() }
+            : c
+        )
+      );
+    },
+    []
+  );
+
+  const deleteChecklist = useCallback(
+    (id: string) => {
+      setChecklists((prev) => prev.filter((c) => c.id !== id));
+      if (activeChecklistId === id) {
+        setActiveChecklistId(null);
+      }
+    },
+    [activeChecklistId]
+  );
 
   const setActiveChecklist = useCallback((id: string | null) => {
     setActiveChecklistId(id);
   }, []);
 
-  const addTaskToChecklist = useCallback((
-    checklistId: string,
-    sectionId: string,
-    task: Omit<TodoItem, "id" | "children">
-  ) => {
-    setChecklists((prev) =>
-      prev.map((checklist) => {
-        if (checklist.id !== checklistId) return checklist;
+  const addTaskToChecklist = useCallback(
+    (
+      checklistId: string,
+      sectionId: string,
+      task: Omit<TodoItem, "id" | "children">
+    ) => {
+      setChecklists((prev) =>
+        prev.map((checklist) => {
+          if (checklist.id !== checklistId) return checklist;
 
-        const updatedSections = checklist.sections.map((section) => {
-          if (section.id !== sectionId) return section;
+          const updatedSections = checklist.sections.map((section) => {
+            if (section.id !== sectionId) return section;
 
-          const newTask: TodoItem = {
-            ...task,
+            const newTask: TodoItem = {
+              ...task,
+              id: generateId(),
+              children: [],
+            };
+
+            return {
+              ...section,
+              items: [...section.items, newTask],
+              totalCount: section.totalCount + 1,
+              completedCount: task.completed
+                ? section.completedCount + 1
+                : section.completedCount,
+            };
+          });
+
+          const totalItems = updatedSections.reduce(
+            (sum, s) => sum + s.totalCount,
+            0
+          );
+          const totalCompleted = updatedSections.reduce(
+            (sum, s) => sum + s.completedCount,
+            0
+          );
+
+          return {
+            ...checklist,
+            sections: updatedSections,
+            totalItems,
+            totalCompleted,
+            updatedAt: new Date().toISOString(),
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const toggleTask = useCallback((checklistId: string, taskId: string, completed: boolean) => {
+    setChecklists(prev => prev.map(checklist => {
+      if (checklist.id !== checklistId) return checklist;
+
+      // Deep clone to safely mutate
+      const newChecklist = { ...checklist };
+      
+      // Helper to update items recursively
+      const updateItems = (items: TodoItem[]): { items: TodoItem[], changed: boolean } => {
+        let changed = false;
+        const newItems = items.map(item => {
+          if (item.id === taskId) {
+            changed = true;
+            return { ...item, completed };
+          }
+          if (item.children && item.children.length > 0) {
+            const result = updateItems(item.children);
+            if (result.changed) {
+              changed = true;
+              return { ...item, children: result.items };
+            }
+          }
+          return item;
+        });
+        return { items: newItems, changed };
+      };
+
+      // Update sections
+      newChecklist.sections = newChecklist.sections.map(section => {
+        const result = updateItems(section.items);
+        if (result.changed) {
+          // Recalculate counts
+          const countItems = (items: TodoItem[]): { total: number; completed: number } => {
+            let total = 0;
+            let comp = 0;
+            items.forEach(i => {
+              total++;
+              if (i.completed) comp++;
+              const sub = countItems(i.children || []);
+              total += sub.total;
+              comp += sub.completed;
+            });
+            return { total, completed: comp };
+          };
+          const counts = countItems(result.items);
+          return {
+            ...section,
+            items: result.items,
+            totalCount: counts.total,
+            completedCount: counts.completed
+          };
+        }
+        return section;
+      });
+
+      // Recalculate total checklist counts
+      newChecklist.totalItems = newChecklist.sections.reduce((acc, s) => acc + s.totalCount, 0);
+      newChecklist.totalCompleted = newChecklist.sections.reduce((acc, s) => acc + s.completedCount, 0);
+      newChecklist.updatedAt = new Date().toISOString();
+      
+      return newChecklist;
+    }));
+  }, []);
+
+  const addSectionToChecklist = useCallback(
+    (checklistId: string, title: string, emoji?: string) => {
+      setChecklists((prev) =>
+        prev.map((checklist) => {
+          if (checklist.id !== checklistId) return checklist;
+
+          const newSection: TodoSection = {
             id: generateId(),
-            children: [],
+            title,
+            emoji,
+            items: [],
+            completedCount: 0,
+            totalCount: 0,
           };
 
           return {
-            ...section,
-            items: [...section.items, newTask],
-            totalCount: section.totalCount + 1,
-            completedCount: task.completed ? section.completedCount + 1 : section.completedCount,
+            ...checklist,
+            sections: [...checklist.sections, newSection],
+            updatedAt: new Date().toISOString(),
           };
-        });
+        })
+      );
+    },
+    []
+  );
 
-        const totalItems = updatedSections.reduce((sum, s) => sum + s.totalCount, 0);
-        const totalCompleted = updatedSections.reduce((sum, s) => sum + s.completedCount, 0);
+  const duplicateChecklist = useCallback(
+    (id: string): Checklist => {
+      const original = checklists.find((c) => c.id === id);
+      if (!original) throw new Error("Checklist not found");
 
-        return {
-          ...checklist,
-          sections: updatedSections,
-          totalItems,
-          totalCompleted,
-          updatedAt: new Date().toISOString(),
-        };
-      })
-    );
-  }, []);
-
-  const addSectionToChecklist = useCallback((checklistId: string, title: string, emoji?: string) => {
-    setChecklists((prev) =>
-      prev.map((checklist) => {
-        if (checklist.id !== checklistId) return checklist;
-
-        const newSection: TodoSection = {
-          id: generateId(),
-          title,
-          emoji,
-          items: [],
-          completedCount: 0,
-          totalCount: 0,
-        };
-
-        return {
-          ...checklist,
-          sections: [...checklist.sections, newSection],
-          updatedAt: new Date().toISOString(),
-        };
-      })
-    );
-  }, []);
-
-  const duplicateChecklist = useCallback((id: string): Checklist => {
-    const original = checklists.find((c) => c.id === id);
-    if (!original) throw new Error("Checklist not found");
-
-    const now = new Date().toISOString();
-    const duplicated: Checklist = {
-      ...JSON.parse(JSON.stringify(original)),
-      id: generateId(),
-      title: `${original.title} (Copy)`,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    // Generate new IDs for sections and items
-    duplicated.sections = duplicated.sections.map((section: TodoSection) => ({
-      ...section,
-      id: generateId(),
-      items: section.items.map((item: TodoItem) => ({
-        ...item,
+      const now = new Date().toISOString();
+      const duplicated: Checklist = {
+        ...JSON.parse(JSON.stringify(original)),
         id: generateId(),
-        children: item.children.map((child: TodoItem) => ({
-          ...child,
-          id: generateId(),
-        })),
-      })),
-    }));
+        title: `${original.title} (Copy)`,
+        createdAt: now,
+        updatedAt: now,
+      };
 
-    setChecklists((prev) => [duplicated, ...prev]);
-    return duplicated;
-  }, [checklists]);
+      // Generate new IDs for sections and items
+      duplicated.sections = duplicated.sections.map((section: TodoSection) => ({
+        ...section,
+        id: generateId(),
+        items: section.items.map((item: TodoItem) => ({
+          ...item,
+          id: generateId(),
+          children: item.children.map((child: TodoItem) => ({
+            ...child,
+            id: generateId(),
+          })),
+        })),
+      }));
+
+      setChecklists((prev) => [duplicated, ...prev]);
+      return duplicated;
+    },
+    [checklists]
+  );
 
   if (!isLoaded) {
     return null;
@@ -448,11 +613,13 @@ export function ChecklistProvider({ children }: { children: ReactNode }) {
         activeChecklistId,
         activeChecklist,
         createChecklist,
+        createChecklistWithSections,
         createFromMarkdown,
         updateChecklist,
         deleteChecklist,
         setActiveChecklist,
         addTaskToChecklist,
+        toggleTask,
         addSectionToChecklist,
         duplicateChecklist,
         syncToCloud,

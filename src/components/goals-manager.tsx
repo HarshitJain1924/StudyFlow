@@ -43,21 +43,32 @@ interface Goal {
   id: string;
   title: string;
   type: "daily" | "weekly" | "monthly" | "custom";
+  mode: "time" | "check";
   targetValue: number;
   currentValue: number;
   unit: "minutes" | "tasks" | "sessions";
+  targetCount?: number;
+  completedCount?: number;
   completed: boolean;
   createdAt: string;
 }
 
 const defaultGoals: Goal[] = [];
 
+// Migration helper: ensures existing goals have the new mode field
+const migrateGoals = (goals: Goal[]): Goal[] => {
+  return goals.map((goal) => ({
+    ...goal,
+    mode: goal.mode || "time",
+  }));
+};
+
 export function GoalsManager() {
   const { stats, settings, updateSettings, getTodayStudyTime, getTodayTasks } = useStudy();
   const [goals, setGoals] = useState<Goal[]>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("studyflow-goals");
-      return saved ? JSON.parse(saved) : defaultGoals;
+      return saved ? migrateGoals(JSON.parse(saved)) : defaultGoals;
     }
     return defaultGoals;
   });
@@ -85,6 +96,7 @@ export function GoalsManager() {
       id: Date.now().toString(),
       title: newGoal.title,
       type: newGoal.type,
+      mode: "time",
       targetValue: newGoal.targetValue,
       currentValue: 0,
       unit: newGoal.unit,

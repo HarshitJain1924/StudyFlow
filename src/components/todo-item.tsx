@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TodoItem as TodoItemType } from "@/lib/markdown-parser";
 import { cn } from "@/lib/utils";
-import { ChevronRight, Clock, AlertTriangle, Calendar, Repeat, Tag, MoreHorizontal, Pencil, Trash2, X, Check } from "lucide-react";
+import { ChevronRight, Clock, AlertTriangle, Calendar, Repeat, Tag, MoreHorizontal, Pencil, Trash2, X, Check, ExternalLink } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { format, isToday, isTomorrow, isPast, parseISO } from "date-fns";
 
@@ -219,6 +219,26 @@ export function TodoItem({ item, onToggle, onEdit, onDelete, depth = 0, compact 
                 )}
                 title={tag}
               />
+            ))}
+          </div>
+        )}
+
+        {/* Links */}
+        {item.links && item.links.length > 0 && !compact && (
+          <div className="flex items-center gap-1">
+            {item.links.map((link, idx) => (
+              <a
+                key={idx}
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900 transition-colors"
+                title={link.url}
+              >
+                <ExternalLink className="h-3 w-3" />
+                {link.label}
+              </a>
             ))}
           </div>
         )}
